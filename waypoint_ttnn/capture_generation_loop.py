@@ -68,16 +68,21 @@ with torch.no_grad():
 
     frame_latents = [seed_latent]
     noise_draws = []
-    for _ in range(2):
+    step_trace = []  # per (frame, step): real, properly-evolved x/v/sigma, not synthetic
+    for frame_i in range(2):
         x = torch.randn((1, 1, C, latent_H, latent_W), dtype=torch.bfloat16)
         noise_draws.append(x.clone())
         kv_cache.set_frozen(True)
         sigma = x.new_empty((x.size(0), x.size(1)))
-        for step_sig, step_dsig in zip(sigmas, sigmas.diff()):
+        for step_i, (step_sig, step_dsig) in enumerate(zip(sigmas, sigmas.diff())):
             v = wm(x=x, sigma=sigma.fill_(step_sig),
                    frame_timestamp=frame_timestamp * ts_mult, frame_idx=frame_timestamp,
                    prompt_emb=prompt_emb, prompt_pad_mask=prompt_pad_mask,
                    mouse=mouse, button=button, scroll=scroll, kv_cache=kv_cache)
+            step_trace.append({
+                "frame": frame_i, "step": step_i, "sigma": float(step_sig), "dsigma": float(step_dsig),
+                "x_in": x.float().clone(), "v_out": v.float().clone(),
+            })
             x = x + step_dsig * v
         x = x.clone()
 
@@ -101,6 +106,7 @@ to_save = {
     "decoded_frames": decoded,
     "ts_mult": ts_mult,
     "sigmas": sigmas.float(),
+    "step_trace": step_trace,
 }
 torch.save(to_save, f"{OUT}/generation_loop.pt")
 print("[gen] saved. DONE")
