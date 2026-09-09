@@ -152,21 +152,39 @@ SAME noise draws (via `noise_override`) the reference's own two-pass-per-frame
 (32x64, not the arbitrary 16x16 the standalone VAE tests used) -- comparing both
 intermediate latents and final decoded pixels end to end.
 
-**Known limitation, not yet resolved**: the seed path is excellent (latent corr 0.9996,
-decoded-pixel corr ~0.96), but GENERATED frames are not -- latent corr drops to 0.86-0.88
-and decoded-pixel correlation collapses to 0.05-0.24. `test_frozen_step.py` isolated the
-cause: a single `is_frozen=True` forward call (the one new code path this loop exercises)
-has correlation matching the established single-call baseline (0.953) but a real,
-systematic mean bias undiluted single-call tests never showed this starkly. The
-rectified-flow loop explicitly SUMS four such biased outputs (`x = x + dsigma*v`) rather
-than passing them through 24 residual-connected layers, so per-call bf16 noise compounds
-additively instead of being diluted, and the VAE's `tanh`-based `Clamp` amplifies the
-resulting shifted latent into badly wrong pixels. `ttnn.scaled_dot_product_attention`
-only accepts bf16/bf8/bf4, so full-fp32 attention isn't even available on this hardware
-to test as a mitigation. Currently believed to be a hardware-precision-constrained
-extension of the already-documented Stage 4 finding, not a discrete remaining logic bug
--- but Stage 6 is NOT considered hardware-verified to the same bar as Stages 1-5 until
-this is either fixed or more firmly characterized as an accepted limitation.
+**Known limitation, thoroughly investigated**: the seed path is excellent (latent corr
+0.9996, decoded-pixel corr ~0.96), but GENERATED frames are not -- latent corr drops to
+0.86-0.88 and decoded-pixel correlation collapses to 0.05-0.24. `test_frozen_step.py`
+isolated the cause: a single `is_frozen=True` forward call (the one new code path this
+loop exercises) has correlation matching the established single-call baseline (0.953)
+but a real mean bias undiluted single-call tests never showed this starkly.
+
+A deeper investigation (per Taylor's explicit ask to keep digging rather than accept
+this) initially found what looked like a discrete bug: `test_sigma_sweep.py` showed the
+transformer catastrophically wrong (corr 0.256) specifically at sigma=0.30078125, with
+the reference's OWN activations exploding ~12x through later layers while ours stayed
+flat (`test_sigma_block_trace.py`). This turned out to be a false lead: that test fed
+the SAME fixed random noise across every tested sigma, including 0.3 -- but in a real
+trajectory, x at sigma=0.3 is a partially-denoised signal from 2 prior steps, not raw
+noise, so labeling raw noise "sigma=0.3" is out-of-distribution and plausibly explains an
+explosive reference response unrelated to this port. Verified by extending
+`capture_generation_loop.py` to save real per-step (x_in, v_out) pairs from its own
+properly-evolved trajectory and re-comparing against those (`test_step_trace.py`): all 8
+real denoising steps show correlation 0.897-0.971, consistent with the established
+baseline, no catastrophic failure anywhere. The sigma-sweep "smoking gun" was an artifact
+of that test's own construction, not a bug.
+
+This restores and strengthens the original conclusion: per-step correlation is normal;
+the rectified-flow loop explicitly SUMS four such steps (`x = x + dsigma*v`) rather than
+diluting them through 24 residual-connected layers, compounding to the observed 0.86-0.88
+latent correlation, and the VAE's `tanh`-based `Clamp` amplifies that into visibly bad
+pixels at the low end of that range. `ttnn.scaled_dot_product_attention` only accepts
+bf16/bf8/bf4, so full-fp32 attention isn't even available on this hardware to test as a
+mitigation. Believed to be a hardware-precision-constrained extension of the
+already-documented Stage 4 finding, not a discrete remaining logic bug -- Stage 6 is
+still not considered hardware-verified to the same bar as Stages 1-5 pending a decision
+on whether/how to mitigate this (e.g. more steps with smaller per-step deltas, or a
+different accumulation scheme) versus accepting it as a documented limitation.
 
 Serving contract: NOT a `tt-dit-server` one-shot-request model like tt-skyreels --
 needs a stateful, per-session protocol (a live KV cache persists across many `step()`

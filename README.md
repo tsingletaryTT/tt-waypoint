@@ -81,12 +81,15 @@ embeddings, attention + multi-frame KV cache, VAE encode+decode). Stage 6 (the f
 interactive loop, `generation_loop.py`) is wired and the SEED path is verified (latent
 corr 0.9996, decoded-pixel corr ~0.96) — but **generated frames currently look wrong**:
 decoded-pixel correlation against the real reference collapses to 0.05-0.24 for frames
-produced by the multi-step denoising loop, root-caused to per-call bf16 noise that the
-rectified-flow update sums explicitly (rather than diluting through a residual stream),
-amplified further by the VAE decoder's saturating nonlinearity. See PORT_PLAN.md's Stage
-6 section for the full isolation trail — this is a real, currently-open quality
-limitation, not a discovered-and-fixed bug, so packaging and the HF push are on hold
-until it's resolved or more firmly characterized as an accepted limitation. See
+produced by the multi-step denoising loop. Thoroughly investigated (including chasing
+and ruling out what first looked like a discrete bug at one specific sigma value, which
+turned out to be an artifact of a flawed diagnostic, not a real issue — see
+PORT_PLAN.md's Stage 6 section for the full trail): every individual denoising step has
+normal, expected correlation; the rectified-flow update sums four such steps explicitly
+(rather than diluting them through a residual stream), and the VAE decoder's saturating
+nonlinearity amplifies the compounded result into visibly bad pixels. This is a real,
+currently-open quality limitation, not a discovered-and-fixed bug, so packaging and the
+HF push are on hold until it's mitigated or accepted as a documented limitation. See
 BRINGUP_LOG.md for exact numbers — the 24-layer full-model correlation (0.948) sitting
 below the 0.99 target is a related, separately-documented finding (ordinary bf16
 hardware compounding over a deep stack).
