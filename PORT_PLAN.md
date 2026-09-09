@@ -83,12 +83,36 @@ Remaining work, now much more tractable:
   should gather just the written blocks before running attention, once correctness is
   established across multiple frames. Not needed for a first correctness pass.
 
-## Stage 5 — VAE (ChunkedStreamingTAEHV)
+## Stage 5 — VAE (ChunkedStreamingTAEHV) -- decoder hardware-verified
 
 Small CNN (Conv2d + `MemBlock` residual-with-memory + `TPool`/`TGrow` for temporal
-pooling/growing). No attention. Lower risk than Stage 4, but genuinely new TTNN code
-(nothing in tt_dit is a CNN autoencoder like this) — mainly `ttnn.conv2d` composition plus
-getting the streaming state machine (`_sequential_single_step`'s work-queue) right.
+pooling/growing). No attention. Genuinely new TTNN code (nothing in tt_dit is a CNN
+autoencoder like this) -- modeled directly on tt-metal's own SDXL VAE decoder
+(`models/demos/vision/generative/stable_diffusion/wormhole/tt/vae/`) for the
+`ttnn.conv2d`/`ttnn.upsample` calling convention, per Taylor's explicit call to port
+straight to real hardware ops rather than a host-CPU-first stopgap.
+
+**Decoder verified on real Blackhole hardware** (`waypoint_ttnn/tt/vae_decoder.py`,
+`waypoint_ttnn/tests/test_vae_decoder.py`): faithfully ports the reference's THREE-layer
+streaming contract (`_sequential_single_step`'s work-queue -> `_streaming_decode_step`'s
+session-wide trim counter -> `decode()`'s first-call priming dance) rather than a
+simplified approximation -- an earlier draft that collapsed this into "drain everything,
+discard the first N calls" was wrong (the trim counter is global across the whole
+session, not per-call) and was caught by testing before it ever ran, not assumed
+correct. Verified against 3 consecutive `decode()` calls (same streaming state, no reset,
+matching a real session) through the SAME per-layer `ttnn.conv2d` state that the
+reference's own state machine persists: correlation >0.99 for all 12 output frames
+(most >0.999; the first call's 4 frames sit closer to 0.993, plausibly the priming path's
+extra bf16-noise accumulation, not investigated further given the bar is already met).
+Two real hardware/API issues hit and fixed along the way: `ttnn.open_mesh_device`
+defaults `l1_small_size` to 0, which conv2d's halo op cannot work with at all (fixed by
+setting it explicitly, matching the SDXL VAE's own precedent); `ttnn.upsample` requires
+an un-padded (ROW_MAJOR) input and rejects a TILE-layout tensor whose H*W isn't
+tile-aligned, requiring an explicit `to_layout` round-trip around each upsample call.
+
+Still pending: the `encode()` path (needed to seed a session from a real starting image --
+not yet ported/verified, lower priority since it runs once per session rather than once
+per generated frame).
 
 ## Stage 6 — full interactive loop + serving contract
 

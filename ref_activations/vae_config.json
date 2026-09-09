@@ -1,0 +1,26 @@
+{
+  "latent_channels": 32,
+  "patch_size": 2,
+  "image_channels": 3,
+  "encoder_time_downscale": [
+    true,
+    true,
+    false
+  ],
+  "decoder_time_upscale": [
+    false,
+    true,
+    true
+  ],
+  "decoder_space_upscale": [
+    true,
+    true,
+    true
+  ],
+  "_class_name": "ChunkedStreamingTAEHV",
+  "_diffusers_version": "0.36.0.dev0",
+  "auto_map": {
+    "AutoModel": "ae_model.ChunkedStreamingTAEHV"
+  },
+  "_name_or_path": "Overworld/Waypoint-1.5-1B"
+}
