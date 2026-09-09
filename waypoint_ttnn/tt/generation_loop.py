@@ -78,7 +78,13 @@ class WaypointGenerator:
         Returns the seed latent (torch [1,1,C,H,W]) so the caller can also decode+display
         it as the session's first visible frame if desired."""
         assert self.frame_timestamp == 0, "seed() must be called once, before any step()"
-        latent_tt = self.vae_encoder.encode(seed_frames_nhwc, self.latent_h, self.latent_w)
+        # encode()'s height/width is the PATCHIFIED-RGB size feeding its 3 stride-2
+        # convs, spatial_downscale times LARGER than the output latent -- not the
+        # latent's own size (that's what decode_frame() uses instead, since the
+        # decoder's input IS the raw latent).
+        enc_h = self.latent_h * self.vae_encoder.spatial_downscale
+        enc_w = self.latent_w * self.vae_encoder.spatial_downscale
+        latent_tt = self.vae_encoder.encode(seed_frames_nhwc, enc_h, enc_w)
         latent = self._latent_to_torch(latent_tt)
 
         rope = compute_rope_angles(self.hf_config, self.frame_timestamp, self.ts_mult)

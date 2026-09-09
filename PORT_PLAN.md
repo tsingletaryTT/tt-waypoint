@@ -152,6 +152,22 @@ SAME noise draws (via `noise_override`) the reference's own two-pass-per-frame
 (32x64, not the arbitrary 16x16 the standalone VAE tests used) -- comparing both
 intermediate latents and final decoded pixels end to end.
 
+**Known limitation, not yet resolved**: the seed path is excellent (latent corr 0.9996,
+decoded-pixel corr ~0.96), but GENERATED frames are not -- latent corr drops to 0.86-0.88
+and decoded-pixel correlation collapses to 0.05-0.24. `test_frozen_step.py` isolated the
+cause: a single `is_frozen=True` forward call (the one new code path this loop exercises)
+has correlation matching the established single-call baseline (0.953) but a real,
+systematic mean bias undiluted single-call tests never showed this starkly. The
+rectified-flow loop explicitly SUMS four such biased outputs (`x = x + dsigma*v`) rather
+than passing them through 24 residual-connected layers, so per-call bf16 noise compounds
+additively instead of being diluted, and the VAE's `tanh`-based `Clamp` amplifies the
+resulting shifted latent into badly wrong pixels. `ttnn.scaled_dot_product_attention`
+only accepts bf16/bf8/bf4, so full-fp32 attention isn't even available on this hardware
+to test as a mitigation. Currently believed to be a hardware-precision-constrained
+extension of the already-documented Stage 4 finding, not a discrete remaining logic bug
+-- but Stage 6 is NOT considered hardware-verified to the same bar as Stages 1-5 until
+this is either fixed or more firmly characterized as an accepted limitation.
+
 Serving contract: NOT a `tt-dit-server` one-shot-request model like tt-skyreels --
 needs a stateful, per-session protocol (a live KV cache persists across many `step()`
 calls). `waypoint_ttnn/session.py` holds a single active `WaypointGenerator` per

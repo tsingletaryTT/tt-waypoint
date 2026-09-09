@@ -105,6 +105,8 @@ def main():
             diff = (latent - ref_latents[i + 1]).abs()
             print(f"[test] frame {i + 1} latent vs reference: max {diff.max().item():.4f} "
                   f"mean {diff.mean().item():.5f} corr {pearson_corr(latent, ref_latents[i + 1]):.6f}")
+            print(f"[test]   computed std/mean {latent.std().item():.4f}/{latent.mean().item():.4f}  "
+                  f"ref std/mean {ref_latents[i+1].std().item():.4f}/{ref_latents[i+1].mean().item():.4f}")
 
         # --- Decode each generated latent and compare pixels ---
         for i, latent in enumerate(computed_latents):

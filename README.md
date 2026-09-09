@@ -77,16 +77,23 @@ gozer run --chips 1 --who "you:tt-waypoint" --reason "bring-up test" -- \
 ## Status
 
 Stages 1-5 hardware-verified (text encoder reuse, patchify/AdaLN, conditioning
-embeddings, attention + multi-frame KV cache, VAE encode+decode). Not yet done: the full
-interactive generation loop and packaging with
-[tt-model-manager](https://github.com/tenstorrent/tt-model-manager) (Stage 6). See
-BRINGUP_LOG.md for exact numbers and caveats — in particular, the 24-layer full-model
-correlation (0.948) sits below the 0.99 target, diagnosed via a per-layer trace as
-ordinary bf16 hardware compounding over a deep stack rather than a remaining logic bug.
+embeddings, attention + multi-frame KV cache, VAE encode+decode). Stage 6 (the full
+interactive loop, `generation_loop.py`) is wired and the SEED path is verified (latent
+corr 0.9996, decoded-pixel corr ~0.96) — but **generated frames currently look wrong**:
+decoded-pixel correlation against the real reference collapses to 0.05-0.24 for frames
+produced by the multi-step denoising loop, root-caused to per-call bf16 noise that the
+rectified-flow update sums explicitly (rather than diluting through a residual stream),
+amplified further by the VAE decoder's saturating nonlinearity. See PORT_PLAN.md's Stage
+6 section for the full isolation trail — this is a real, currently-open quality
+limitation, not a discovered-and-fixed bug, so packaging and the HF push are on hold
+until it's resolved or more firmly characterized as an accepted limitation. See
+BRINGUP_LOG.md for exact numbers — the 24-layer full-model correlation (0.948) sitting
+below the 0.99 target is a related, separately-documented finding (ordinary bf16
+hardware compounding over a deep stack).
 
-Once Stage 6 lands, this will be packaged and pushed to Hugging Face under the `episod`
-account, public, the same way [episod/tt-skyreels](https://huggingface.co/episod/tt-skyreels)
-was.
+Once Stage 6's frame quality is resolved, this will be packaged and pushed to Hugging
+Face under the `episod` account, public, the same way
+[episod/tt-skyreels](https://huggingface.co/episod/tt-skyreels) was.
 
 ## License
 

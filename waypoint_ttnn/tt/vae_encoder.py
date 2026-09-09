@@ -67,6 +67,12 @@ class WaypointVAEEncoder(LightweightModule):
         self.mesh_device = mesh_device
         self.patch_size = patch_size
         self.t_downscale = t_downscale
+        # 3 fixed stride-2 3x3 convs (indices 3, 8, 13) -- unconditional, not gated by
+        # encoder_time_downscale (that only controls the TPool temporal downscale).
+        # encode()'s `height`/`width` args are this many times LARGER than the output
+        # latent's own spatial size -- easy to get backwards (see generation_loop.py's
+        # fix), so make it explicit here rather than a magic 8 at every call site.
+        self.spatial_downscale = 8
         self.state = _EncoderState(memory=[None] * len(layers))
 
     @classmethod
