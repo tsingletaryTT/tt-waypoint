@@ -70,10 +70,14 @@ Remaining work, now much more tractable:
   the ~0.002-0.01 seen in shorter-sequence stages, plausibly genuine bf16 accumulation
   error over an 8704-long softmax; flagged for revisit under Stage 4's optimization pass,
   not yet fully explained).
-- Still unverified: the ring-buffer write/indexing logic across MULTIPLE frames (this
-  first pass only proved frame 0's empty-buffer case). Test frame 1+ next, where the local
-  ring actually starts holding real history and the global (dilated) layers' write_step
-  logic first kicks in.
+- **Multi-frame ring-buffer write/read logic verified** (see BRINGUP_LOG.md): ran frame 0
+  (`prefill_forward`, empty cache) then frame 1 (`decode_forward`, cache now holds frame
+  0's real history) through the SAME per-layer cache objects and compared both against a
+  reference run that persists its own `kv_cache` across the same two calls. Frame 1's
+  whole-model correlation (0.957) tracks frame 0's baseline (0.962) almost exactly (delta
+  -0.004) rather than showing the much larger, structural degradation a real bucket/slot
+  indexing bug would produce -- the ring write/read logic across frames is correct, not
+  just the frame-0 empty-buffer case.
 - Performance note for later: dense attention over an 8704-long (or larger, for global
   layers) buffer is far more compute than actually needed — a real optimization pass
   should gather just the written blocks before running attention, once correctness is
