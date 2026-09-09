@@ -38,5 +38,7 @@ conversation segment before Taylor said "I want to try."
 
 | Sample frame captured, plan written | 2026-09-09T20:16:32Z | 14,959,743 | Saved and sent an actual generated frame (`seed_frame.png`) as tangible proof the reference pipeline works. Wrote `PORT_PLAN.md` (6 staged phases) and confirmed by reading real code that Stage 1 (UMT5-XL text encoder) is checkpoint-agnostic reuse from `models.tt_dit.pipelines.wan.text_encoder.TextEncoder` — no architecture guessing, verified against the actual source. Elapsed since start: 17m53s. |
 
+| **Stage 1 hardware-verified** | 2026-09-09T20:20:50Z | 14,942,273 | **Milestone**: UMT5-XL text encoder running on REAL Blackhole hardware (P300×2 board, 1×1 mesh, one chip leased via gozer). Hit one real bug (`ftfy` missing from the shared `.tenstorrent-venv` — same package tt-skyreels' bring-up hit independently, now confirmed to also be a gap in tt-metal's own WAN text encoder module, not just SkyReels' port). Fixed, then: constructed `models.tt_dit.encoders.umt5.UMT5Encoder` directly (bypassing tt_dit's WAN-specific `TextEncoder` wrapper, which assumes a subfolder layout `google/umt5-xl` doesn't have), loaded `UMT5EncoderModel.from_pretrained("google/umt5-xl").state_dict()` into it — **zero missing, zero unexpected keys** — and ran a real forward pass on the chip. Output shape matched the torch reference exactly ([1,512,2048]); mean abs diff 0.0045 (expected bf16 noise, not a bug). Elapsed since start: 22m11s. |
+
 *(Rows appended as work progresses. Elapsed time and token burn are computed against the
 Start row.)*
