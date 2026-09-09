@@ -160,7 +160,7 @@ class WaypointWorldModel(LightweightModule):
         h = tokens
         for i, layer in enumerate(self.layers):
             if frame_idx == 0:
-                h, v1 = layer.prefill_forward(h, rope_angles, cond, ctrl_emb, v1=v1)
+                h, v1 = layer.prefill_forward(h, rope_angles, cond, ctrl_emb, v1=v1, is_frozen=is_frozen)
             else:
                 h, v1 = layer.decode_forward(h, rope_angles, cond, ctrl_emb, frame_idx=frame_idx, is_frozen=is_frozen, v1=v1)
 

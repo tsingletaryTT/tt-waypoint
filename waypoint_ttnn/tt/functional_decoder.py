@@ -318,11 +318,21 @@ class FunctionalDecoder(LightweightModule):
 
     # ---- public API ----------------------------------------------------------------
 
-    def prefill_forward(self, x, rope_angles, cond, ctrl_emb, v1=None):
+    def prefill_forward(self, x, rope_angles, cond, ctrl_emb, v1=None, is_frozen: bool = False):
         """Frame with an EMPTY cache (frame_idx=0). See module docstring: "prefill"
-        means cache-empty here, not "long token prompt"."""
+        means cache-empty here, not "long token prompt". `is_frozen` defaults to False
+        (matching every prior single-call test's behavior, which modeled the
+        reference's cache-COMMIT pass) but frame 0 gets multiple calls too once a real
+        multi-step denoising loop is involved (see generation_loop.py): the reference's
+        own `_denoise_pass` runs several FROZEN forward calls (one per sigma step, cache
+        untouched beyond the ephemeral tail) before ONE unfrozen `_cache_pass` call
+        commits the final clean latent into the ring -- this must be threaded through
+        here too, not hardcoded, or every "frame 0" step would corrupt the ring with
+        intermediate noisy states. Resetting the cache on every call is redundant but
+        harmless for frame 0 (the ring stays zero throughout until the one unfrozen
+        commit call writes it, exactly like the reference)."""
         self.cache.reset()
-        return self._block_forward(x, rope_angles, cond, ctrl_emb, v1, frame_idx=0, is_frozen=False)
+        return self._block_forward(x, rope_angles, cond, ctrl_emb, v1, frame_idx=0, is_frozen=is_frozen)
 
     def decode_forward(self, x, rope_angles, cond, ctrl_emb, frame_idx: int, is_frozen: bool, v1=None):
         """Frame with EXISTING cache history (frame_idx > 0)."""

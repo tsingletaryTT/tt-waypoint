@@ -37,10 +37,29 @@ bring-up methodology (the `ttm-*` skill family's conventions: `LightweightModule
 | `waypoint_ttnn/tt/full_model.py` | Full 24-layer assembly: patchify → blocks → out_norm → unpatchify |
 | `waypoint_ttnn/tt/vae_decoder.py` | VAE decoder: latents → RGB, real `ttnn.conv2d`/`ttnn.upsample` |
 | `waypoint_ttnn/tt/vae_encoder.py` | VAE encoder: RGB → latent (session seeding) |
+| `waypoint_ttnn/tt/rope.py` | `compute_rope_angles` — OrthoRoPE for an arbitrary frame index |
+| `waypoint_ttnn/tt/generation_loop.py` | `WaypointGenerator` — the full interactive seed/step loop |
+| `waypoint_ttnn/session.py` | Mesh-device + model singleton, shared by the Gradio app |
+| `app.py` | Local Gradio UI — seed a session from an image, then step it (port 7862) |
+| `.disco/app.yaml` | [tt-discolike](https://github.com/tsingletaryTT/tt-discolike) catalog manifest |
 | `waypoint_ttnn/tests/` | Hardware correctness tests, each checked against a real captured HF reference |
 | `waypoint_ttnn/capture_*.py` | Scripts that capture reference activations from the real HF model (see [Reference activations](CLAUDE.md#reference-activations-arent-committed)) |
-| `PORT_PLAN.md` | The staged bring-up plan |
+| `PORT_PLAN.md` | The staged bring-up plan, including the benchmarking plan |
 | `BRINGUP_LOG.md` | Timestamped log: every stage, every bug, every hardware-verified number |
+
+## Running the Gradio UI
+
+```bash
+pip install gradio
+python app.py    # http://localhost:7862
+```
+
+Upload a starting image, click **Start session** (opens the device, loads weights —
+slow on the first call), then pick a direction and click **Step** to generate the next
+frame. Each step is a real forward pass on hardware (denoise + VAE decode), not a
+simulation — see `app.py`'s own docstring for the button-mapping caveat (the real
+model's 256-wide button vector has no published semantics, so this UI only drives
+mouse/scroll).
 
 ## Running the tests
 

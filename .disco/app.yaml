@@ -1,0 +1,5 @@
+name: waypoint
+description: Waypoint-1.5-1B interactive world model demo (Blackhole hardware, single chip)
+port: 7862
+chips: 1
+launch: python app.py

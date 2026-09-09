@@ -127,6 +127,78 @@ Stage 5 is now fully hardware-verified end to end (encode -> latent -> decode ->
 
 ## Stage 6 — full interactive loop + serving contract
 
+Wires Stages 1-5 into `waypoint_ttnn/tt/generation_loop.py` (`WaypointGenerator`),
+matching the real pipeline's exact per-session/per-frame protocol read directly out of
+`modular_blocks.py` rather than inferred: `seed()` VAE-encodes a real starting image and
+commits it as frame 0's history via a SINGLE unfrozen forward call (no denoising loop for
+the seed frame itself); `step()` draws fresh noise, runs K FROZEN rectified-flow
+denoising passes (`x = x + dsigma * v`, `v` being the transformer's velocity-field
+output, NOT a denoised x directly -- a real detail that would have been silently wrong
+if guessed rather than read from `WorldEngineDenoiseLoop._denoise_pass`), then ONE
+UNFROZEN commit pass to persist the clean result. Needed a new `rope.py`
+(`compute_rope_angles`) since every prior test reused a single captured rope tensor
+(only ever frame 0 or frame 1) -- a real multi-frame loop needs arbitrary-frame rope
+angles, verified bit-for-bit against captured frame-0/frame-1 reference tensors before
+being trusted for other frames. Also fixed a real gap this exposed:
+`FunctionalDecoder.prefill_forward` hardcoded `is_frozen=False`, which is correct for
+the single-call tests done so far (all of which modeled the reference's cache-COMMIT
+pass) but wrong for frame 0's OWN multi-step denoising loop, where intermediate steps
+must be frozen too -- threaded `is_frozen` through properly, verified no regression on
+the existing hardware-verified tests.
+
+Verification: `test_generation_loop.py` seeds from the SAME real image and injects the
+SAME noise draws (via `noise_override`) the reference's own two-pass-per-frame
+`capture_generation_loop.py` run used, at the real (non-square) latent resolution
+(32x64, not the arbitrary 16x16 the standalone VAE tests used) -- comparing both
+intermediate latents and final decoded pixels end to end.
+
+Serving contract: NOT a `tt-dit-server` one-shot-request model like tt-skyreels --
+needs a stateful, per-session protocol (a live KV cache persists across many `step()`
+calls). `waypoint_ttnn/session.py` holds a single active `WaypointGenerator` per
+process for the first Gradio demo app; a real multi-tenant server would need one
+generator per session id, out of scope for now.
+
+## Benchmarking plan
+
+Correctness first (Stages 1-5 above), performance measured only once Stage 6's loop is
+verified end to end -- matching the `ttm-functional-decoder` skill's own convention
+(`tt-perf-report` over a Tracy-profiled, warmed run, not a first eager pass) rather than
+quoting cold-start numbers as if they were steady state:
+
+1. **Warm-up methodology**: run `WaypointGenerator.step()` a few times to let TTNN's
+   kernel cache populate (JIT compilation is a real, one-time cost per unique shape --
+   already observed as several extra seconds on every FIRST call of a given op/shape
+   combination throughout this bring-up) before measuring anything. Report cold
+   (first-ever call) and warm (steady-state) numbers separately and labeled as such --
+   never blend them into one average.
+2. **Per-frame latency breakdown**, warmed, single chip (P300x2, 1x1 mesh): time the
+   transformer's denoise pass (K frozen sigma steps) and commit pass separately from the
+   VAE decode pass, via `ttnn`'s device-side profiler / Tracy signposts
+   (`PERF_DENOISE`/`PERF_DECODE`-style markers, same pattern the skill uses for
+   prefill/decode) so a slow VAE isn't misattributed to the transformer or vice versa.
+   Convert to an effective FPS and compare against the config's own `inference_fps=60`
+   target -- report the gap honestly rather than picking a favorable subset of steps.
+3. **Session-length scaling check**: because attention runs DENSE over the full
+   zero-padded per-layer capacity buffer regardless of how much of it is real history
+   (Stage 4's finding), per-frame latency should stay FLAT as a session grows longer
+   (frame 50 should cost about the same as frame 5) -- this is a real, testable
+   architectural prediction, not an assumption, so benchmark frame latency at several
+   points in a long session (e.g. frames 1, 10, 50) specifically to confirm or refute it,
+   the same "trust the subject, verify the instrument" way every other claim in this repo
+   has been checked.
+4. **Seed vs. steady-state cost**: `seed()` (VAE encode + one commit pass) is a
+   once-per-session cost, architecturally different from `step()`'s repeated cost --
+   report it separately, not folded into a per-frame average.
+5. **Tokens/wall-clock accounting**: continue the `BRINGUP_LOG.md` convention (approximate
+   `total_tokens` delta + wall-clock time per milestone) for the benchmarking work itself,
+   consistent with how the rest of this bring-up has been tracked since Taylor's original
+   request to measure "how long it takes, how many tokens it burns."
+6. **What's explicitly NOT benchmarked yet**: multi-chip scaling and quantized
+   (fp8/bf8) precision are both out of scope per this plan's own "explicitly out of
+   scope" section below -- correctness and single-chip bf16 performance come first.
+
+## Stage 6 — full interactive loop + serving contract
+
 Wire stages 1-5 into a frame-by-frame generation loop matching the reference's calling
 convention (seed with an image, then step with button/mouse/scroll each call, `kv_cache`
 threaded through). THEN design the serving contract — this is NOT a `tt-dit-server`
