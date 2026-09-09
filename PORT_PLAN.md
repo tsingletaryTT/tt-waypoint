@@ -46,25 +46,38 @@ functional pass, revisit under optimization), `CondHead` (per-layer scale/bias/g
 `CrossAttention` for prompt conditioning, `MLPFusion` for controller conditioning. All
 plain linear-algebra, portable.
 
-## Stage 4 — the hard part: local/global block-sparse causal attention + KV cache
+## Stage 4 — local/global KV cache, and attention (de-risked: no sparse kernel needed)
 
-**This is where the real risk and the majority of the effort lives.** No existing tt-metal
-kernel implements this pattern. Needs its own design spike before writing code:
+**Originally scoped as "the hard part, no existing precedent." First-pass verification
+(see BRINGUP_LOG.md) found the actual computation is much simpler than the block-sparse
+description suggested:** the reference runs **plain dense attention over the entire
+per-layer capacity buffer** (ring + tail), where never-written slots are zero and
+naturally contribute negligible softmax mass. There is no gather, no sparse kernel, no
+block-mask to replicate — the "sparsity" lives entirely in which positions get WRITTEN,
+not in how attention is computed over them.
 
-- Reference semantics (from `modular_blocks.py`'s `LayerKVCache`/`StaticKVCache`): each
-  layer gets EITHER a small sliding local window (16 frames = 8192 tokens) OR, every
-  `global_attn_period` (4) layers, a much larger window (128 frames) that only keeps every
-  `global_pinned_dilation`-th (8) frame — a dilated long-context memory. Each layer's cache
-  is an independent fixed-capacity ring buffer; the full cache set across all 24 layers IS
-  the interactive "world state" (explicitly save/restorable).
-- Options to evaluate: (a) two attention "modes" composed from existing TTNN sliding-window
-  + full-attention primitives (if `tt_transformers` has a sliding-window/landmark-attention
-  precedent worth checking first) with a strided gather for the dilated global cache: (b) a
-  custom kernel via `ttnn.generic_op` + `KernelDescriptor` (see the "custom kernels via
-  generic_op" convention already established for other TT-Lang-adjacent work on this box).
-- Whichever approach: validate against the reference's ring-buffer/bucket indexing
-  (`bucket = (frame_idx + dilation - 1) // dilation`, `slot = bucket % num_buckets`) on a
-  short multi-frame sequence before trusting it on the full 512-frame context.
+Remaining work, now much more tractable:
+
+- Per layer, maintain a zero-initialized `[capacity, d_head]` K/V buffer (`capacity =
+  local_window*tpf + tpf` for local layers, `global_window*tpf + tpf` for the
+  `global_attn_period`-th layers), matching `LayerKVCache`'s exact ring-buffer indexing:
+  `bucket = (frame_idx + dilation - 1) // dilation`, `slot = bucket % num_buckets`, always
+  write the tail unconditionally, write the ring slot only on `frame_idx % dilation == 0`
+  and only when not "frozen" (mid-denoising intermediate steps don't persist history).
+- Attention itself is then just: RMSNorm(Q,K) → OrthoRoPE → GQA repeat → dense
+  `scaled_dot_product_attention` over the WHOLE buffer → out_proj. Verified correct on
+  real hardware for frame 0 (mean abs diff 0.018 against the fp32 reference — larger than
+  the ~0.002-0.01 seen in shorter-sequence stages, plausibly genuine bf16 accumulation
+  error over an 8704-long softmax; flagged for revisit under Stage 4's optimization pass,
+  not yet fully explained).
+- Still unverified: the ring-buffer write/indexing logic across MULTIPLE frames (this
+  first pass only proved frame 0's empty-buffer case). Test frame 1+ next, where the local
+  ring actually starts holding real history and the global (dilated) layers' write_step
+  logic first kicks in.
+- Performance note for later: dense attention over an 8704-long (or larger, for global
+  layers) buffer is far more compute than actually needed — a real optimization pass
+  should gather just the written blocks before running attention, once correctness is
+  established across multiple frames. Not needed for a first correctness pass.
 
 ## Stage 5 — VAE (ChunkedStreamingTAEHV)
 
