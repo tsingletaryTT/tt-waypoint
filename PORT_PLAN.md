@@ -19,11 +19,15 @@ inputs (extracted from a real reference run) and diffs the output.
 
 ## Stage 1 — text encoder (UMT5-XL)
 
-Lowest risk: `models.tt_dit.encoders.umt5` already exists in tt-metal. Task is validating
-it against `google/umt5-xl` specifically (the pipeline's actual encoder, confirm it's the
-same checkpoint/config tt_dit's encoder was built for) and wiring the prompt-cleaning
-preprocessing (`ftfy`/`html.unescape`/whitespace — from `modular_blocks.py`'s
-`prompt_clean`) identically.
+Lowest risk, confirmed by reading the actual code (not just architecture docs):
+`models.tt_dit.pipelines.wan.text_encoder.TextEncoder` builds its TTNN `UMT5Config`
+entirely from the loaded torch model's own `.config` fields (`d_model`, `d_ff`, `d_kv`,
+`num_heads`, `num_layers`, ...) — it's checkpoint-agnostic, not hardcoded to WAN's
+specific UMT5 variant. Should work directly against `google/umt5-xl` (Waypoint's actual
+text encoder) with no changes beyond pointing it at that checkpoint. Remaining work:
+wire the prompt-cleaning preprocessing (`ftfy`/`html.unescape`/whitespace — from
+`modular_blocks.py`'s `prompt_clean`) identically, and confirm numerically on a real
+prompt.
 
 ## Stage 2 — patchify / unpatchify + AdaLN + plain MLP
 
