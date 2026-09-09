@@ -231,10 +231,17 @@ class FunctionalDecoder(LightweightModule):
         k = (x @ self.w["k_proj"].t()).view(B, T, self.n_kv_heads, self.d_head).transpose(1, 2)
         v = (x @ self.w["v_proj"].t()).view(B, T, self.n_kv_heads, self.d_head).transpose(1, 2)
 
-        if v1 is not None:
-            v_lamb = self.w["v_lamb"]
-            v = torch.lerp(v, v1.view_as(v), v_lamb)
-        v1_out = v
+        # Reference (Attn.forward): `v1 = v if v1 is None else v1; v = lerp(v, v1, lamb);
+        # return y, v1` -- v1 is PINNED to whichever layer first produced it (layer 0,
+        # where it enters as None) and threaded UNCHANGED through every later layer's
+        # lerp. Returning the freshly-lerped `v` as v1_out (as before) let the
+        # value-residual signal drift layer over layer instead of staying pinned to the
+        # original -- invisible in a layer-0-only test (v1 enters as None there either
+        # way) but a real, compounding bug from layer 1 onward.
+        if v1 is None:
+            v1 = v
+        v = torch.lerp(v, v1.view_as(v), self.w["v_lamb"])
+        v1_out = v1
 
         q, k = _rms_norm_torch(q), _rms_norm_torch(k)
         cos, sin = rope_angles

@@ -26,6 +26,14 @@ kv_cache = StaticKVCache(wm.config, batch_size=1, dtype=torch.bfloat16)
 kv_cache.set_frozen(False)  # commit writes, matches a "real" (non-speculative) step
 
 B, C, H, W = 1, 32, 32, 64
+# Fixed seed: this capture's whole point is to be a reproducible ground truth that other
+# scripts reconstruct the SAME inputs against later (a real bug once -- the original
+# version of this script had no seed at all, so "reconstruct x with manual_seed(0)" in a
+# downstream test silently produced a DIFFERENT x than the one the reference was run on,
+# and a full-model correctness check correctly reported near-zero correlation because the
+# inputs genuinely differed, not because the model was wrong). Seed immediately before the
+# first random draw and do not draw anything else beforehand.
+torch.manual_seed(0)
 x = torch.randn(B, 1, C, H, W, dtype=torch.bfloat16) * 0.5  # fake noisy latent, N=1 frame
 sigma = torch.tensor([[0.5]], dtype=torch.bfloat16)
 frame_timestamp = torch.tensor([[0]], dtype=torch.long)  # frame_idx = 0, the real target
@@ -58,5 +66,6 @@ for name, (inputs, output) in captured.items():
     to_save[f"{name}__inputs"] = inputs
     to_save[f"{name}__output"] = output
 to_save["wm_output"] = out
+to_save["x_input"] = x
 torch.save(to_save, f"{OUT}/synthetic_frame0.pt")
 print("[synthetic] saved. DONE")
