@@ -110,9 +110,20 @@ setting it explicitly, matching the SDXL VAE's own precedent); `ttnn.upsample` r
 an un-padded (ROW_MAJOR) input and rejects a TILE-layout tensor whose H*W isn't
 tile-aligned, requiring an explicit `to_layout` round-trip around each upsample call.
 
-Still pending: the `encode()` path (needed to seed a session from a real starting image --
-not yet ported/verified, lower priority since it runs once per session rather than once
-per generated frame).
+**Encoder also verified** (`waypoint_ttnn/tt/vae_encoder.py`, `test_vae_encoder.py`):
+same queue-based streaming approach, generalized with a `TPool` branch (temporal
+downscale via channel-concat + 1x1 conv) the decoder doesn't need. Real bug hit and
+fixed: the first draft's spatial-size tracker used `layer_idx >= stride_conv_idx` to
+decide when H/W halves, which incorrectly treated a strided conv's OWN input as already
+halved (it should only affect layers AFTER it, matching the decoder's `_hw_at`, which
+correctly uses strict `>` for its upsample doublings) -- caught immediately by a real
+hardware error (`MeshBuffer must be large enough to hold the tensor`) rather than
+silently producing wrong numbers, since the actual queue-shuffling order meant the first
+tensor to hit that bug had already gone through two downscale stages, not one, making the
+shape mismatch load-bearing rather than cosmetic. Verified against the reference's own
+`encode()` call on the same 4-frame RGB chunk: correlation 0.9996 for the resulting latent.
+
+Stage 5 is now fully hardware-verified end to end (encode -> latent -> decode -> RGB).
 
 ## Stage 6 — full interactive loop + serving contract
 

@@ -32,12 +32,27 @@ and it's worth being explicit about which applies where:
 
 ## Status
 
-See BRINGUP_LOG.md for the live, timestamped record. Current state (updated as of the
-`functional_decoder.py` layer-0 milestone): Stages 1-3 (text encoder reuse, patchify/
-AdaLN, conditioning embeddings) hardware-verified. Stage 4 (attention + KV cache) — a
-real wrong-hypothesis-caught-and-fixed finding (dense attention over the full zero-padded
-capacity buffer, not a sparse block-mask) — verified for a single layer's frame-0 case
-with PCC 0.999 against the HF reference (exceeds the `ttm-functional-decoder` skill's own
-0.995 bar). Not yet done: multi-frame cache correctness (only frame 0's empty-cache case
-is proven), all 24 layers assembled together, the VAE, a full interactive generation
-loop, and packaging.
+See BRINGUP_LOG.md for the live, timestamped record. Stages 1-5 are hardware-verified:
+text encoder reuse, patchify/AdaLN/conditioning embeddings, attention + multi-frame KV
+cache (24-layer full-model correlation 0.948 -- the residual gap below the 0.99 bar is
+diagnosed as ordinary bf16 hardware compounding over a deep stack, not a logic bug, see
+BRINGUP_LOG.md), and the VAE (encoder + decoder both verified, real `ttnn.conv2d`/
+`ttnn.upsample` compute). Not yet done: the full interactive generation loop and
+packaging (Stage 6).
+
+## Repo hosting
+
+Public at [github.com/tsingletaryTT/tt-waypoint](https://github.com/tsingletaryTT/tt-waypoint),
+committed to `main` regularly as work lands. Once the model reaches HF-ready status
+(Stage 6 complete, packaged), it also gets published to Hugging Face under the `episod`
+account (also public) — this repo's own HF namespace confusion during tt-skyreels'
+bring-up (`tsingletary` vs. the actual authenticated `episod` identity) is exactly why
+this is spelled out explicitly here rather than assumed.
+
+## Reference activations aren't committed
+
+`ref_activations/*.pt` (except the tiny `transformer_config.pt`/`vae_config.json`) are
+gitignored — they're large captured tensors (one hit 97MB, close to GitHub's 100MB hard
+block) that are fully reproducible by re-running the `capture_*.py` scripts (which ARE
+tracked) against the real downloaded HF checkpoint. Regenerate them locally rather than
+expecting them to be present after a fresh clone.

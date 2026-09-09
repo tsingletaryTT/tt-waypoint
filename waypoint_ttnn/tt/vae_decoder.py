@@ -76,7 +76,7 @@ class TTConv2d:
     (models/demos/vision/generative/stable_diffusion/wormhole/tt/vae/ttnn_conv_block.py)."""
 
     def __init__(self, weight: torch.Tensor, bias: Optional[torch.Tensor], device, in_channels, out_channels,
-                 kernel_size=3, padding=1):
+                 kernel_size=3, padding=1, stride=1):
         import ttnn
 
         self.device = device
@@ -84,14 +84,21 @@ class TTConv2d:
         self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.padding = padding
+        self.stride = stride
         self.conv_config = _conv_config()
         self.compute_config = _compute_config(device)
         self.weight = ttnn.from_torch(weight.float())
         self.bias = ttnn.from_torch(bias.float().view(1, 1, 1, -1)) if bias is not None else None
 
+    def out_hw(self, height: int, width: int):
+        oh = (height + 2 * self.padding - self.kernel_size) // self.stride + 1
+        ow = (width + 2 * self.padding - self.kernel_size) // self.stride + 1
+        return oh, ow
+
     def __call__(self, x, height: int, width: int):
         import ttnn
 
+        out_h, out_w = self.out_hw(height, width)
         kwargs = dict(
             in_channels=self.in_channels,
             out_channels=self.out_channels,
@@ -99,7 +106,7 @@ class TTConv2d:
             input_height=height,
             input_width=width,
             kernel_size=(self.kernel_size, self.kernel_size),
-            stride=(1, 1),
+            stride=(self.stride, self.stride),
             padding=(self.padding, self.padding),
             dilation=(1, 1),
             groups=1,
@@ -119,7 +126,7 @@ class TTConv2d:
         # NHWC so every downstream op (concat, upsample, add, channel-slicing) sees
         # correct shape/stride info, matching the ttnn_vae_resnet.py/ttnn_vae_upsample.py
         # precedent's own explicit reshapes after each conv/before each non-conv op.
-        return ttnn.reshape(out, [1, height, width, self.out_channels])
+        return ttnn.reshape(out, [1, out_h, out_w, self.out_channels])
 
 
 class MemBlockTT:
