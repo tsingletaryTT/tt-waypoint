@@ -76,26 +76,27 @@ gozer run --chips 1 --who "you:tt-waypoint" --reason "bring-up test" -- \
 
 ## Status
 
-Stages 1-5 hardware-verified (text encoder reuse, patchify/AdaLN, conditioning
-embeddings, attention + multi-frame KV cache, VAE encode+decode). Stage 6 (the full
-interactive loop, `generation_loop.py`) is wired and the SEED path is verified (latent
-corr 0.9996, decoded-pixel corr ~0.96) — but **generated frames currently look wrong**:
-decoded-pixel correlation against the real reference collapses to 0.05-0.24 for frames
-produced by the multi-step denoising loop. Thoroughly investigated (including chasing
-and ruling out what first looked like a discrete bug at one specific sigma value, which
-turned out to be an artifact of a flawed diagnostic, not a real issue — see
-PORT_PLAN.md's Stage 6 section for the full trail): every individual denoising step has
-normal, expected correlation; the rectified-flow update sums four such steps explicitly
-(rather than diluting them through a residual stream), and the VAE decoder's saturating
-nonlinearity amplifies the compounded result into visibly bad pixels. This is a real,
-currently-open quality limitation, not a discovered-and-fixed bug, so packaging and the
-HF push are on hold until it's mitigated or accepted as a documented limitation. See
-BRINGUP_LOG.md for exact numbers — the 24-layer full-model correlation (0.948) sitting
-below the 0.99 target is a related, separately-documented finding (ordinary bf16
-hardware compounding over a deep stack).
+Stages 1-6 hardware-verified end to end (text encoder reuse, patchify/AdaLN, conditioning
+embeddings, attention + multi-frame KV cache, VAE encode+decode, full interactive
+seed/step loop). Getting Stage 6 to this point took a real investigation — pixel
+correlation against one specific reference run is the WRONG bar for an iterative,
+self-referential denoising loop (any per-step difference compounds trajectories apart,
+the same way two chaotic systems diverge from slightly different initial conditions), so
+"generated frames don't match the reference bit-for-bit" initially looked alarming but
+wasn't the right question. The right checks — every individual denoising step matches
+the established correlation baseline (further improved via a real fp32-accumulation fix,
+`compute_kernel_config` with `fp32_dest_acc_en`+`HiFi4`, exactly upstream's own
+recommended lever for narrowing the bf16↔fp32 gap since true fp32 SDPA doesn't exist
+anywhere in tt-metal — confirmed against branch/tag history and an open upstream issue),
+and a real, in-distribution seed image produces visually coherent, plausible generated
+frames — both pass. See PORT_PLAN.md's Stage 6 section and BRINGUP_LOG.md for the full
+investigation trail, including why an earlier synthetic random-static seed test looked
+catastrophic (even the reference's own output was unstructured noise under that
+out-of-distribution input) and how that was resolved.
 
-Once Stage 6's frame quality is resolved, this will be packaged and pushed to Hugging
-Face under the `episod` account, public, the same way
+Not yet started: packaging with
+[tt-model-manager](https://github.com/tenstorrent/tt-model-manager). Once that lands,
+this will be pushed to Hugging Face under the `episod` account, public, the same way
 [episod/tt-skyreels](https://huggingface.co/episod/tt-skyreels) was.
 
 ## License

@@ -27,6 +27,16 @@ class WaypointWorldModel(LightweightModule):
         self.layers = layers
         self.patch = tuple(hf_config.patch)
 
+        import ttnn
+
+        # Same fp32-accumulation lever as FunctionalDecoder's -- keeps bf16 tensors but
+        # computes matmul reductions at higher precision; measurably improved the
+        # 24-layer full-model correlation (0.948 -> 0.963) when applied there.
+        self.compute_kernel_config = ttnn.init_device_compute_kernel_config(
+            mesh_device.arch(), math_fidelity=ttnn.MathFidelity.HiFi4, math_approx_mode=False,
+            fp32_dest_acc_en=True, packer_l1_acc=True,
+        )
+
     @classmethod
     def from_state_dict(cls, state_dict, *, hf_config, mesh_device):
         w = {
@@ -76,8 +86,8 @@ class WaypointWorldModel(LightweightModule):
         tt_x = ttnn.from_torch(x.to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
         tt_fc1 = ttnn.from_torch(self.w["ctrl_fc1"].t().contiguous().to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
         tt_fc2 = ttnn.from_torch(self.w["ctrl_fc2"].t().contiguous().to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
-        h = ttnn.silu(ttnn.matmul(tt_x, tt_fc1))
-        out = ttnn.matmul(h, tt_fc2)
+        h = ttnn.silu(ttnn.matmul(tt_x, tt_fc1, compute_kernel_config=self.compute_kernel_config))
+        out = ttnn.matmul(h, tt_fc2, compute_kernel_config=self.compute_kernel_config)
         return ttnn.to_torch(out).float()
 
     def _patchify(self, x: torch.Tensor) -> torch.Tensor:
@@ -91,7 +101,7 @@ class WaypointWorldModel(LightweightModule):
 
         tt_patches = ttnn.from_torch(patches.to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
         tt_weight = ttnn.from_torch(weight.t().contiguous().to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
-        tt_y = ttnn.matmul(tt_patches, tt_weight)
+        tt_y = ttnn.matmul(tt_patches, tt_weight, compute_kernel_config=self.compute_kernel_config)
         y_flat = ttnn.to_torch(tt_y).float()
         D = weight.shape[0]
         return y_flat.view(B, Hp * Wp, D), (Hp, Wp)
@@ -114,7 +124,7 @@ class WaypointWorldModel(LightweightModule):
 
         tt_x = ttnn.from_torch(x.reshape(B * T, D).to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
         tt_w = ttnn.from_torch(w_flat.to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
-        tt_y = ttnn.matmul(tt_x, tt_w)
+        tt_y = ttnn.matmul(tt_x, tt_w, compute_kernel_config=self.compute_kernel_config)
         y = ttnn.to_torch(tt_y).float() + bias_expanded.view(1, -1)  # [B*T, C*ph*pw]
 
         y = y.view(B, hp, wp, C, ph, pw).permute(0, 3, 1, 4, 2, 5).reshape(B, C, hp * ph, wp * pw)

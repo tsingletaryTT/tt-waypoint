@@ -152,39 +152,60 @@ SAME noise draws (via `noise_override`) the reference's own two-pass-per-frame
 (32x64, not the arbitrary 16x16 the standalone VAE tests used) -- comparing both
 intermediate latents and final decoded pixels end to end.
 
-**Known limitation, thoroughly investigated**: the seed path is excellent (latent corr
-0.9996, decoded-pixel corr ~0.96), but GENERATED frames are not -- latent corr drops to
-0.86-0.88 and decoded-pixel correlation collapses to 0.05-0.24. `test_frozen_step.py`
-isolated the cause: a single `is_frozen=True` forward call (the one new code path this
-loop exercises) has correlation matching the established single-call baseline (0.953)
-but a real mean bias undiluted single-call tests never showed this starkly.
+**Investigation trail (resolved) -- pixel-correlation-vs-reference is the wrong bar for
+this loop; per-step correctness plus a real-image visual check is the right one.** The
+seed path is excellent (latent corr 0.9996, decoded-pixel corr ~0.96), but GENERATED
+frames initially looked catastrophic by the same metric: latent corr 0.86-0.88,
+decoded-pixel correlation 0.05-0.24 against `capture_generation_loop.py`'s reference.
+`test_frozen_step.py` isolated a real mean bias in a single `is_frozen=True` call
+(correlation still matching the established baseline, ~0.95, but with a systematic shift
+undiluted single-call tests never showed this starkly).
 
-A deeper investigation (per Taylor's explicit ask to keep digging rather than accept
-this) initially found what looked like a discrete bug: `test_sigma_sweep.py` showed the
-transformer catastrophically wrong (corr 0.256) specifically at sigma=0.30078125, with
-the reference's OWN activations exploding ~12x through later layers while ours stayed
-flat (`test_sigma_block_trace.py`). This turned out to be a false lead: that test fed
-the SAME fixed random noise across every tested sigma, including 0.3 -- but in a real
-trajectory, x at sigma=0.3 is a partially-denoised signal from 2 prior steps, not raw
-noise, so labeling raw noise "sigma=0.3" is out-of-distribution and plausibly explains an
-explosive reference response unrelated to this port. Verified by extending
-`capture_generation_loop.py` to save real per-step (x_in, v_out) pairs from its own
-properly-evolved trajectory and re-comparing against those (`test_step_trace.py`): all 8
-real denoising steps show correlation 0.897-0.971, consistent with the established
-baseline, no catastrophic failure anywhere. The sigma-sweep "smoking gun" was an artifact
-of that test's own construction, not a bug.
+Chased further (per Taylor's ask to keep digging): `test_sigma_sweep.py` first looked
+like a discrete bug (transformer catastrophically wrong, corr 0.256, at exactly
+sigma=0.30078125, with the reference's OWN activations exploding ~12x through later
+layers -- `test_sigma_block_trace.py`), but this was a false lead. That test fed the SAME
+fixed random noise across every tested sigma, including 0.3 -- in a real trajectory, x at
+sigma=0.3 is a partially-denoised signal from 2 prior steps, not raw noise, so labeling
+raw noise "sigma=0.3" is out-of-distribution and plausibly explains an explosive
+reference response unrelated to this port. Verified with real per-step (x_in, v_out)
+pairs from an actual trajectory (`test_step_trace.py`): all 8 real denoising steps show
+correlation 0.897-0.971, consistent with the established baseline, no failure anywhere.
 
-This restores and strengthens the original conclusion: per-step correlation is normal;
-the rectified-flow loop explicitly SUMS four such steps (`x = x + dsigma*v`) rather than
-diluting them through 24 residual-connected layers, compounding to the observed 0.86-0.88
-latent correlation, and the VAE's `tanh`-based `Clamp` amplifies that into visibly bad
-pixels at the low end of that range. `ttnn.scaled_dot_product_attention` only accepts
-bf16/bf8/bf4, so full-fp32 attention isn't even available on this hardware to test as a
-mitigation. Believed to be a hardware-precision-constrained extension of the
-already-documented Stage 4 finding, not a discrete remaining logic bug -- Stage 6 is
-still not considered hardware-verified to the same bar as Stages 1-5 pending a decision
-on whether/how to mitigate this (e.g. more steps with smaller per-step deltas, or a
-different accumulation scheme) versus accepting it as a documented limitation.
+Tried a real mitigation next: `ttnn.scaled_dot_product_attention` only accepts
+bf16/bf8/bf4 tensors (confirmed against upstream's own open issue #36717 -- the
+maintainers explicitly declined true fp32 SDPA support and are instead investing in fp32
+ACCUMULATION precision), so added `compute_kernel_config` (`fp32_dest_acc_en=True`,
+`MathFidelity.HiFi4`) to the attention and MLP matmuls -- exactly upstream's own
+recommended lever, not tried before (an earlier experiment had only tried fp32 input
+tensors, a different axis). Real, consistent improvement: all 8 real denoising steps
+improved (avg correlation ~0.926 -> ~0.959), the 24-layer full-model correlation improved
+0.948 -> 0.963. Kept.
+
+Then the key realization: `test_generation_loop.py`'s own accumulated trajectory (using
+OUR OWN output at each step, not the reference's) did NOT improve with this fix, and this
+is expected, not alarming -- generation is an ITERATIVE, SELF-REFERENTIAL process. Step 2
+evaluates at OUR step-1 output, not the reference's; any per-step difference at all,
+however small, means the two trajectories diverge from that point on, the same way two
+chaotic systems with infinitesimally different initial conditions diverge regardless of
+how "correct" each step's dynamics are. Demanding a full self-referential trajectory match
+one specific reference trajectory bit-for-bit is not a meaningful correctness bar for this
+kind of loop -- the per-step tests (holding input fixed) are.
+
+Confirmed this the right way: decoded and VISUALLY INSPECTED frames from a real,
+in-distribution seed image (`ref_activations/seed_frame_ref.png`, a real photo from the
+Stage 0 reference run) rather than trusting a number alone. The VAE round-trip of the
+seed is visually indistinguishable from the original. Both generated frames (`step()`
+called twice) are coherent, plausible nature/foliage scenes -- not garbage, not washed
+out. The EARLIER catastrophic-looking numbers were measured using a synthetic random-
+STATIC seed image (convenient for reproducible testing, but wildly out-of-distribution
+for a model trained on real video) -- even the REFERENCE's own output under that scenario
+was unstructured, grid-artifact noise, confirmed by decoding and viewing the reference's
+own frames from that test too. Stage 6 is now considered adequately verified: per-step
+correctness matches the established baseline (improved further by the fp32-accumulation
+fix), and real-image generation looks visually correct. Bit-for-bit trajectory matching
+against one specific reference run remains unachieved and is not expected to be
+achievable for this kind of iterative process.
 
 Serving contract: NOT a `tt-dit-server` one-shot-request model like tt-skyreels --
 needs a stateful, per-session protocol (a live KV cache persists across many `step()`

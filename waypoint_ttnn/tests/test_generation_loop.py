@@ -120,6 +120,12 @@ def main():
                 d = (rgb - ref_rgb).abs()
                 print(f"[test] decoded frame {i}/{f_idx}: max {d.max().item():.2f} "
                       f"mean {d.mean().item():.4f} corr {pearson_corr(rgb, ref_rgb):.6f}")
+                if f_idx == 0:
+                    # Save for visual inspection, not just correlation-vs-reference --
+                    # see PORT_PLAN.md's Stage 6 section for why that number alone is
+                    # the wrong bar for this loop's real quality.
+                    from PIL import Image
+                    Image.fromarray(rgb.numpy().astype("uint8")).save(f"/tmp/computed_frame_{i}.png")
     finally:
         ttnn.close_mesh_device(device)
     print("[test] DONE")

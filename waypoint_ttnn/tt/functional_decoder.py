@@ -188,6 +188,13 @@ class FunctionalDecoder(LightweightModule):
         self.w = weights  # torch tensors, fp32, keyed by short name (see from_state_dict)
         self.cache = WaypointFrameCache(self.layer_cfg, self.n_kv_heads, self.d_head)
 
+        import ttnn
+
+        self.attn_compute_kernel_config = ttnn.init_device_compute_kernel_config(
+            mesh_device.arch(), math_fidelity=ttnn.MathFidelity.HiFi4, math_approx_mode=False,
+            fp32_dest_acc_en=True, packer_l1_acc=True,
+        )
+
     @classmethod
     def from_state_dict(cls, state_dict, *, hf_config, layer_idx, mesh_device, **kwargs):
         """Real weight-loading boundary. `state_dict` is the HF checkpoint's own state
@@ -256,7 +263,16 @@ class FunctionalDecoder(LightweightModule):
         tt_q = ttnn.from_torch(q.to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
         tt_k = ttnn.from_torch(k_rep.to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
         tt_v = ttnn.from_torch(v_rep.to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
-        tt_out = ttnn.transformer.scaled_dot_product_attention(tt_q, tt_k, tt_v, is_causal=False)
+        # ttnn's SDPA kernel only accepts bf16/bf8/bf4 Q/K/V (fp32 inputs are not
+        # supported anywhere in tt-metal -- confirmed against upstream's own open
+        # issue #36717, where the maintainers explicitly declined to add it and are
+        # instead investing in fp32 ACCUMULATION precision via compute_kernel_config).
+        # This is that lever: fp32 dest-register accumulation + HiFi4 math fidelity,
+        # keeping bf16 tensors but computing the internal QK/softmax/PV reductions at
+        # higher precision.
+        tt_out = ttnn.transformer.scaled_dot_product_attention(
+            tt_q, tt_k, tt_v, is_causal=False, compute_kernel_config=self.attn_compute_kernel_config
+        )
         attn_out = ttnn.to_torch(tt_out).float().transpose(1, 2).reshape(B, T, D)
 
         y = attn_out @ self.w["out_proj"].t()
@@ -268,9 +284,11 @@ class FunctionalDecoder(LightweightModule):
         tt_x = ttnn.from_torch(x.to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
         tt_fc1 = ttnn.from_torch(self.w["mlp_fc1"].t().contiguous().to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
         tt_fc2 = ttnn.from_torch(self.w["mlp_fc2"].t().contiguous().to(torch.bfloat16), device=self.mesh_device, layout=ttnn.TILE_LAYOUT)
-        h = ttnn.matmul(tt_x, tt_fc1)
+        # Same fp32-accumulation lever as _attn's SDPA call -- measurably improved the
+        # 24-layer full-model correlation there (0.948 -> 0.963), so applied here too.
+        h = ttnn.matmul(tt_x, tt_fc1, compute_kernel_config=self.attn_compute_kernel_config)
         h = ttnn.silu(h)
-        out = ttnn.matmul(h, tt_fc2)
+        out = ttnn.matmul(h, tt_fc2, compute_kernel_config=self.attn_compute_kernel_config)
         return ttnn.to_torch(out).float()
 
     def _block_forward(
