@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+#
+# tt-model-manager v5.1 container package for tt-waypoint (Waypoint-1.5-1B, interactive
+# world model).
+#
+#   tt-model package tt_model_package.yaml
+#   tt-model serve episod/tt-waypoint
+#
+# Uses `kind: tt-dit-server`, the same kind tt-skyreels/tt-animatediff use, but for a
+# DIFFERENT reason than "it's a diffusion model with no continuous batching": this kind
+# only means "install a small HTTP stack and launch this ASGI app with uvicorn" -- it
+# does not prescribe a request/response shape. Waypoint-1.5-1B is STATEFUL (a live
+# per-layer KV cache persists across many steps of a session), so
+# waypoint_ttnn/server/app.py implements its own session-based HTTP API rather than the
+# one-shot "prompt in, video out" shape those other packages use. See that module's
+# docstring for the exact API and the "single active session per process" scope note.
+#
+# From-scratch bring-up, not a reused TTNN model: nothing in tt-metal's models.tt_dit
+# already covers this architecture (an autoregressive causal diffusion transformer with
+# a per-layer ring-buffer KV cache, plus a small CNN VAE) -- see BRINGUP_LOG.md for the
+# full, timestamped history of every stage's verification.
+
+schema: "5.1"
+name: tt-waypoint
+repo: episod/tt-waypoint
+weights: Overworld/Waypoint-1.5-1B
+kind: tt-dit-server
+arch: blackhole
+
+source:
+  # ttnn itself is built from this tree in the image.
+  tt_metal:
+    repo: https://github.com/tenstorrent/tt-metal
+    ref: v0.78.0
+  code:
+    # The ONLY tt-metal dependency this model has: LightweightModule, a trivial
+    # ~10-line base class with zero imports of its own (confirmed by reading the file,
+    # not assumed) -- unlike tt-skyreels, nothing here reuses models.tt_dit.
+    - models/common
+  # This model's own package does NOT live in tt-metal -- it is this repo.
+  extra_code:
+    - root:
+        repo: https://github.com/tsingletaryTT/tt-waypoint
+        # A commit, not a branch: reachable from main, so it survives main moving
+        # forward -- same reasoning as tt-skyreels'/tt-animatediff's own ref pins.
+        ref: a49b87f1575f69adb7807626d7196b20f3cf1b1f
+      paths:
+        - waypoint_ttnn
+  ubuntu: "22.04"
+  python: "3.12"
+
+runtime:
+  app: waypoint_ttnn.server.app:app
+  mesh_shape_env: WAYPOINT_MESH_SHAPE
+  # Beyond the kind's own fastapi/uvicorn/pydantic/pillow. torch comes from the image's
+  # own CPU build (the kind's verify step asserts +cpu and tt-metal's pin).
+  packages:
+    - safetensors>=0.4.0,<1
+    - numpy<3
+
+serve:
+  # tt-model-manager requires hardware's implied chip count to exactly equal
+  # mesh_device's (rows*cols) -- there is no board label for "1 chip of a p300x2",
+  # since that board can't be sub-divided below 2 chips at the driver/gozer level (see
+  # BRINGUP_LOG.md/CLAUDE.md: this box only has p300c dual-chip boards, no genuine
+  # single-chip board). This model's real requirement is a plain 1x1 ttnn mesh --
+  # ttnn cares about chip topology, not board SKU, so "p150" (or n150/p100) is the
+  # honest declaration of what's NEEDED, even though bring-up verification actually
+  # ran via a 1-chip mesh opened on a p300x2 board through gozer (which exposes both
+  # of that board's chips for any request, but the ttnn code here only ever opens
+  # one). Not literally tested on a single-chip board -- see card description.
+  hardware: p150
+  mesh_device: P150
+  port: 8000
+
+verify:
+  - "from waypoint_ttnn.server.app import app, mesh_shape_from_env, SUPPORTED_MESH_SHAPES; assert (1, 1) in SUPPORTED_MESH_SHAPES"
+  - "from waypoint_ttnn.tt.full_model import WaypointWorldModel"
+  - "from waypoint_ttnn.tt.vae_encoder import WaypointVAEEncoder"
+  - "from waypoint_ttnn.tt.vae_decoder import WaypointVAEDecoder"
+  - "from waypoint_ttnn.tt.generation_loop import WaypointGenerator"
+
+card:
+  description: >-
+    Waypoint-1.5-1B (interactive world model) on Tenstorrent Blackhole via TTNN --
+    a from-scratch TTNN bring-up (nothing in tt-metal's models.tt_dit already covers
+    this architecture), served through a stateful, session-based HTTP API behind a
+    small ASGI server.
+  quickstart: |
+    ```bash
+    tt-model pull episod/tt-waypoint --with-weights
+    tt-model serve episod/tt-waypoint
+
+    # Seed a session from a real starting image (base64-encoded PNG/JPEG):
+    curl -s localhost:8000/v1/sessions -H 'Content-Type: application/json' \
+      -d "{\"image_b64\": \"$(base64 -w0 my_photo.png)\"}"
+    # -> {"session_id": "...", "frame_index": 1, "frame_b64": "..."}
+
+    # Step the session forward, steered by direction/zoom:
+    curl -s localhost:8000/v1/sessions/<session_id>/step \
+      -H 'Content-Type: application/json' -d '{"direction": "forward", "zoom": 0.0}'
+    ```
+    Source, a local Gradio UI, and the bring-up log (every stage's hardware-verified
+    numbers, every bug found and how -- including a real investigation into why
+    generated-frame pixel correlation against a reference run looked catastrophic and
+    turned out not to be, see BRINGUP_LOG.md):
+    [tsingletaryTT/tt-waypoint](https://github.com/tsingletaryTT/tt-waypoint).
