@@ -94,9 +94,12 @@ investigation trail, including why an earlier synthetic random-static seed test 
 catastrophic (even the reference's own output was unstructured noise under that
 out-of-distribution input) and how that was resolved.
 
-Not yet started: packaging with
-[tt-model-manager](https://github.com/tenstorrent/tt-model-manager). Once that lands,
-this will be pushed to Hugging Face under the `episod` account, public, the same way
+Packaged with [tt-model-manager](https://github.com/tenstorrent/tt-model-manager)
+(`tt_model_package.yaml`) and hardware-verified end to end: built, served, and exercised
+through the real HTTP API (`POST /v1/sessions` to seed from an image, `POST
+/v1/sessions/{id}/step` to advance a frame) against the actual running container — see
+PORT_PLAN.md's Stage 7 section for the two real bugs found and fixed along the way. Next:
+push to Hugging Face under the `episod` account, public, the same way
 [episod/tt-skyreels](https://huggingface.co/episod/tt-skyreels) was.
 
 ## License

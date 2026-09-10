@@ -46,8 +46,10 @@ source:
         # forward -- same reasoning as tt-skyreels'/tt-animatediff's own ref pins.
         # (First build attempt pinned a49b87f, a commit BEFORE waypoint_ttnn/server/
         # was actually committed -- verify.sh's own import check caught the missing
-        # module, on the author's machine rather than a consumer's.)
-        ref: f124933c67e07b521b9dce14a2f7f818747a616b
+        # module, on the author's machine rather than a consumer's. Second attempt,
+        # f124933, built fine but crashed at serve time: session.py globbed into a
+        # hardcoded host-only HF cache path -- fixed in 4526b34.)
+        ref: 4526b34d96d3bd52cc13a0eb5f97e53f4087efd9
       paths:
         - waypoint_ttnn
   ubuntu: "22.04"

@@ -207,11 +207,34 @@ fix), and real-image generation looks visually correct. Bit-for-bit trajectory m
 against one specific reference run remains unachieved and is not expected to be
 achievable for this kind of iterative process.
 
+## Stage 7 -- packaging with tt-model-manager (hardware-verified)
+
 Serving contract: NOT a `tt-dit-server` one-shot-request model like tt-skyreels --
 needs a stateful, per-session protocol (a live KV cache persists across many `step()`
-calls). `waypoint_ttnn/session.py` holds a single active `WaypointGenerator` per
-process for the first Gradio demo app; a real multi-tenant server would need one
-generator per session id, out of scope for now.
+calls). `waypoint_ttnn/server/app.py` implements `POST /v1/sessions` (seed from a real
+image) and `POST /v1/sessions/{id}/step` (advance one frame) under the SAME
+`tt-dit-server` kind, since that kind only means "launch my own ASGI app" -- it doesn't
+prescribe the one-shot shape tt-skyreels/tt-animatediff happen to use.
+`waypoint_ttnn/session.py` holds a single active `WaypointGenerator` per process (a
+deliberate scope choice, documented in the module's own docstring); a real multi-tenant
+server would need one generator per session id (the current architecture ties KV-cache
+state to the same objects that hold the model's weights), out of scope for now.
+
+`tt_model_package.yaml` declares `hardware: p150`/`mesh_device: P150` rather than
+`p300x2`: tt-model-manager requires an exact chip-count match between the two, and this
+box's p300 boards can't be sub-divided below 2 chips at the driver level -- there is no
+label for "1 chip of a p300x2". The model's real requirement is a plain 1x1 mesh, which
+a genuine single-chip board label honestly represents (ttnn cares about chip topology,
+not board SKU); documented as requirement-accurate rather than literally tested on that
+board type.
+
+**Hardware-verified end to end** (see BRINGUP_LOG.md for the full trail, including two
+real bugs found and fixed -- a stale git ref pinned before `server/` was committed, and
+`session.py` resolving weights via a hardcoded host-only path that doesn't exist inside
+the container, fixed with `huggingface_hub.snapshot_download()`): packaged, served,
+health/liveness/models endpoints correct, `POST /v1/sessions` + `POST .../step` both
+returned real, visually coherent decoded frames from the actual running container, error
+handling (404 on a stale session id) and clean shutdown all verified.
 
 ## Benchmarking plan
 
