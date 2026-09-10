@@ -107,6 +107,17 @@ tt-model pull episod/tt-waypoint --with-weights
 tt-model serve episod/tt-waypoint
 ```
 
+## Benchmarks
+
+First-correctness-pass numbers on a single chip (`waypoint_ttnn/benchmark.py`, real
+hardware, untraced/un-batched/bf16-everywhere -- no perf-tuning pass attempted yet):
+warm per-frame transformer latency (4 denoise steps + 1 commit) averages 27.4s; VAE
+decode is essentially free by comparison (0.01s); effective steady-state is ~0.036 fps,
+far from the config's own 60fps target. Session-length scaling stays flat (27-28s at
+frame 1, 5, 10, and 15 alike) — a real, measured confirmation of Stage 4's dense-
+attention-over-a-fixed-buffer finding, not just an assumption. See PORT_PLAN.md's
+benchmarking section for the full breakdown.
+
 ## License
 
 Apache 2.0 (matching the upstream `Overworld/Waypoint-1.5-1B` weights' license terms —

@@ -236,7 +236,36 @@ health/liveness/models endpoints correct, `POST /v1/sessions` + `POST .../step` 
 returned real, visually coherent decoded frames from the actual running container, error
 handling (404 on a stale session id) and clean shutdown all verified.
 
-## Benchmarking plan
+## Benchmarking results (executed)
+
+Real hardware run, `waypoint_ttnn/benchmark.py`, single chip, 16 generated frames from a
+real seed image, host-side wall-clock timing:
+
+| | value |
+| --- | --- |
+| Model load (weights + device open) | 1.4s |
+| `seed()` (encode + commit, cold -- first ttnn call) | 5.91s |
+| `seed()`'s first VAE decode (cold) | 0.16s |
+| Warm transformer per frame (4 frozen sigma steps + 1 commit, avg of frames 2-16) | 27.41s |
+| Warm VAE decode per frame (avg of frames 2-16) | 0.01s |
+| Effective steady-state FPS | 0.036 (≈27.4s/frame) |
+
+**Session-length scaling confirmed flat**, as Stage 4 predicted (dense attention over a
+fixed-size capacity buffer regardless of how much of it is real history, not something
+that scans more history as a session grows): frame 1 = 28.27s, frame 5 = 27.45s, frame
+10 = 27.24s, frame 15 = 27.25s -- no growth trend at all across a 15-frame session. This
+is a real, validated architectural property, not an assumption.
+
+**VAE decode is essentially free next to the transformer** (0.01s vs 27.4s) -- almost
+all per-frame latency is the transformer's 5 forward passes (4 frozen sigma steps +
+1 commit), each a real 24-layer, eager (untraced), un-batched pass. 0.036 fps is very
+far from the config's own `inference_fps: 60` target, entirely expected and explicitly
+out of scope for this pass (see "Explicitly out of scope" below) -- no tracing, no
+kernel-level (Tracy/tt-perf-report) profiling, no batching across sigma steps, and
+bf16-everywhere precision (not yet tuned for speed) all leave real headroom for a
+dedicated optimization pass, not attempted here.
+
+## Benchmarking plan (as originally written, before execution)
 
 Correctness first (Stages 1-5 above), performance measured only once Stage 6's loop is
 verified end to end -- matching the `ttm-functional-decoder` skill's own convention
