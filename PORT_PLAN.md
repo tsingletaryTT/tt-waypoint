@@ -265,6 +265,35 @@ kernel-level (Tracy/tt-perf-report) profiling, no batching across sigma steps, a
 bf16-everywhere precision (not yet tuned for speed) all leave real headroom for a
 dedicated optimization pass, not attempted here.
 
+### Comparison against the model's own published targets
+
+The real `Overworld/Waypoint-1.5-1B` HF card publishes actual GPU numbers (its
+"Performance" section) rather than leaving this bring-up with nothing to compare
+against:
+
+| | Recommended GPU (RTX 5090) | This bring-up (single Blackhole chip) |
+| --- | --- | --- |
+| Steps | 4-step, unquantized | 4-step, unquantized (matches exactly -- same `scheduler_sigmas` shape) |
+| FPS | 56 | 0.036 |
+| Gap | -- | ~1,556x slower |
+
+(The card also lists 72 FPS for 4-step w8a8-quantized on a 5090 and 30 FPS for the same
+on a 3090 -- both a different precision regime than this bring-up's bf16-everywhere, so
+the unquantized row is the fairer comparison.) The card's own reference resolution is
+720p; this bring-up's real checkpoint config resolves to a 512x1024 latent-to-pixel
+size, a different aspect ratio, so even the "matching" row isn't a fully controlled
+comparison -- noted rather than glossed over.
+
+The gap is real and large, but expected: this is a first CORRECTNESS pass on brand-new,
+from-scratch TTNN kernels with zero performance work done (eager execution, no tracing,
+no kernel fusion, no batching across the 4 sigma steps, no quantization) against a
+GPU vendor's own tuned, presumably `torch.compile`d-or-better reference stack for a
+model architecture their own team designed for that hardware. It says nothing yet about
+where Blackhole's ceiling is for this workload -- only that a genuine optimization pass
+(tracing, `tt-perf-report`-guided kernel tuning, batching sigma steps, bf8/quantization)
+has not been attempted, and per "Explicitly out of scope" below, deliberately so for
+this stage.
+
 ## Benchmarking plan (as originally written, before execution)
 
 Correctness first (Stages 1-5 above), performance measured only once Stage 6's loop is

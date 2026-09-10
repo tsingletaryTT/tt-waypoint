@@ -115,8 +115,15 @@ warm per-frame transformer latency (4 denoise steps + 1 commit) averages 27.4s; 
 decode is essentially free by comparison (0.01s); effective steady-state is ~0.036 fps,
 far from the config's own 60fps target. Session-length scaling stays flat (27-28s at
 frame 1, 5, 10, and 15 alike) — a real, measured confirmation of Stage 4's dense-
-attention-over-a-fixed-buffer finding, not just an assumption. See PORT_PLAN.md's
-benchmarking section for the full breakdown.
+attention-over-a-fixed-buffer finding, not just an assumption.
+
+The upstream model card publishes real GPU numbers to compare against: **56 FPS**,
+4-step unquantized, on a recommended RTX 5090 (72 FPS with w8a8 quantization) — about
+**1,556x** faster than this bring-up's 0.036 FPS. Expected, not alarming: zero
+performance work has been done here yet (no tracing, no kernel fusion, no batching
+across sigma steps, no quantization) against a GPU vendor's own tuned reference stack.
+See PORT_PLAN.md's benchmarking section for the full breakdown and caveats (including a
+resolution/aspect-ratio difference between the two setups).
 
 ## License
 
