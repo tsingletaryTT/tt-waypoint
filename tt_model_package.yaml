@@ -44,7 +44,10 @@ source:
         repo: https://github.com/tsingletaryTT/tt-waypoint
         # A commit, not a branch: reachable from main, so it survives main moving
         # forward -- same reasoning as tt-skyreels'/tt-animatediff's own ref pins.
-        ref: a49b87f1575f69adb7807626d7196b20f3cf1b1f
+        # (First build attempt pinned a49b87f, a commit BEFORE waypoint_ttnn/server/
+        # was actually committed -- verify.sh's own import check caught the missing
+        # module, on the author's machine rather than a consumer's.)
+        ref: f124933c67e07b521b9dce14a2f7f818747a616b
       paths:
         - waypoint_ttnn
   ubuntu: "22.04"
@@ -58,6 +61,11 @@ runtime:
   packages:
     - safetensors>=0.4.0,<1
     - numpy<3
+    # session.py's _resolve_snapshot_dir uses huggingface_hub.snapshot_download rather
+    # than a hardcoded host path, so the served container resolves weights correctly
+    # against its own HF_HOME=/hf mount -- found on the first real `tt-model serve`
+    # attempt (IndexError: list index out of range from a glob into a host-only path).
+    - huggingface_hub>=0.20,<1
 
 serve:
   # tt-model-manager requires hardware's implied chip count to exactly equal

@@ -48,7 +48,7 @@ def ensure_waypoint_models():
         if _device is not None:
             return _device, _world_model, _vae_encoder, _vae_decoder, _hf_config
 
-        import glob
+        import os
 
         import ttnn
         from safetensors.torch import load_file
@@ -59,15 +59,10 @@ def ensure_waypoint_models():
 
         device = ttnn.open_mesh_device(mesh_shape=ttnn.MeshShape(*MESH_SHAPE), l1_small_size=L1_SMALL_SIZE)
         try:
-            hf_config = _load_config()
-            tf_weights = glob.glob(
-                "/home/ttuser/.cache/huggingface/hub/models--Overworld--Waypoint-1.5-1B/"
-                "snapshots/*/transformer/diffusion_pytorch_model.safetensors"
-            )[0]
-            vae_weights = glob.glob(
-                "/home/ttuser/.cache/huggingface/hub/models--Overworld--Waypoint-1.5-1B/"
-                "snapshots/*/vae/diffusion_pytorch_model.safetensors"
-            )[0]
+            snapshot_dir = _resolve_snapshot_dir()
+            hf_config = _load_config(snapshot_dir)
+            tf_weights = os.path.join(snapshot_dir, "transformer", "diffusion_pytorch_model.safetensors")
+            vae_weights = os.path.join(snapshot_dir, "vae", "diffusion_pytorch_model.safetensors")
             tf_state_dict = load_file(tf_weights)
             vae_state_dict = load_file(vae_weights)
 
@@ -104,17 +99,26 @@ def current_session() -> Optional["WaypointGenerator"]:  # noqa: F821 -- forward
     return _generator
 
 
-def _load_config():
+def _resolve_snapshot_dir() -> str:
+    """Downloads (or reuses an already-cached) local snapshot of the weights repo,
+    returning its directory. Uses huggingface_hub's own resolution rather than a
+    hardcoded `~/.cache/huggingface/...` path -- that path doesn't exist inside the
+    served container, which mounts the HF cache at `/hf` (`HF_HOME=/hf`, set by
+    tt-model-manager's own container.py) instead. A real bug hit on the first real
+    `tt-model serve` attempt: `glob.glob(...)[0]` raised `IndexError` because the
+    hardcoded host path was simply absent in the container."""
+    from huggingface_hub import snapshot_download
+
+    return snapshot_download(repo_id="Overworld/Waypoint-1.5-1B")
+
+
+def _load_config(snapshot_dir: str):
     """Loads the real transformer config the way every test in this repo does --
     `AutoConfig`-free, since the shared venv's diffusers predates it (see CLAUDE.md)."""
-    import glob
     import json
+    import os
 
-    cfg_path = glob.glob(
-        "/home/ttuser/.cache/huggingface/hub/models--Overworld--Waypoint-1.5-1B/"
-        "snapshots/*/transformer/config.json"
-    )[0]
-    with open(cfg_path) as f:
+    with open(os.path.join(snapshot_dir, "transformer", "config.json")) as f:
         return _Cfg(json.load(f))
 
 
