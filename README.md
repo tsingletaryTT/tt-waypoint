@@ -40,7 +40,8 @@ bring-up methodology (the `ttm-*` skill family's conventions: `LightweightModule
 | `waypoint_ttnn/tt/rope.py` | `compute_rope_angles` — OrthoRoPE for an arbitrary frame index |
 | `waypoint_ttnn/tt/generation_loop.py` | `WaypointGenerator` — the full interactive seed/step loop |
 | `waypoint_ttnn/session.py` | Mesh-device + model singleton, shared by the Gradio app |
-| `app.py` | Local Gradio UI — seed a session from an image, then step it (port 7862) |
+| `app.py` | Local Gradio UI — seed a session from an image, then step it (port 7862); talks HTTP to the ASGI server, no ttnn/torch import of its own |
+| `waypoint_ttnn/server/app.py` | ASGI server (`tt-dit-server` kind) — the same session API the Gradio UI drives |
 | `.disco/app.yaml` | [tt-discolike](https://github.com/tsingletaryTT/tt-discolike) catalog manifest |
 | `waypoint_ttnn/tests/` | Hardware correctness tests, each checked against a real captured HF reference |
 | `waypoint_ttnn/capture_*.py` | Scripts that capture reference activations from the real HF model (see [Reference activations](CLAUDE.md#reference-activations-arent-committed)) |
@@ -49,9 +50,28 @@ bring-up methodology (the `ttm-*` skill family's conventions: `LightweightModule
 
 ## Running the Gradio UI
 
+The UI (`app.py`) and the model itself run in two separate processes, on purpose: the
+shared `.tenstorrent-venv` pins `gradio==4.44.1` against a much newer
+`pydantic`/`fastapi`/`starlette`/`jinja2` than that gradio version was built for, which
+crashes on every page load. A dedicated venv with a modern gradio fixes that, but that
+venv has no `ttnn`/`torch` of its own — and bridging the two via `sys.path` doesn't work
+for `ttnn` (it's an editable install; its finder only registers at interpreter startup).
+So `app.py` is a pure HTTP client with no `ttnn`/`torch` import at all, talking to the
+`waypoint_ttnn/server/app.py` ASGI server (the same one `tt-model serve` runs) over HTTP.
+
+First, start the model server under the shared venv, on a chip lease:
+
 ```bash
-pip install gradio
-python app.py    # http://localhost:7862
+WAYPOINT_MESH_SHAPE=1x1 gozer run --chips 1 --who "you:tt-waypoint-gradio" \
+  --reason "serve waypoint_ttnn for the Gradio UI" -- \
+  python3 -m uvicorn waypoint_ttnn.server.app:app --host 0.0.0.0 --port 8002
+```
+
+Then, in the dedicated venv (created once with
+`python3 -m venv ~/tt-gradio-venv && ~/tt-gradio-venv/bin/pip install gradio requests`):
+
+```bash
+WAYPOINT_SERVER_URL=http://localhost:8002 ~/tt-gradio-venv/bin/python app.py    # http://localhost:7862
 ```
 
 Upload a starting image, click **Start session** (opens the device, loads weights —
