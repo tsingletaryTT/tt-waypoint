@@ -49,8 +49,9 @@ source:
         # module, on the author's machine rather than a consumer's. Second attempt,
         # f124933, built fine but crashed at serve time: session.py globbed into a
         # hardcoded host-only HF cache path -- fixed in 4526b34. Bumped again at
-        # 2df128d to pick up benchmark.py -- no served-path code changed since 4526b34.)
-        ref: 2df128d312c962bbfe41bddbf0d07338412c3ea8
+        # a514165 to pick up benchmark.py + its docs -- no served-path code changed
+        # since 4526b34.)
+        ref: a51416546ad5cfaa5f52c81a47ca0f43c3e218a2
       paths:
         - waypoint_ttnn
   ubuntu: "22.04"
