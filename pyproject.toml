@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waypoint-ttnn"
-version = "0.1.0"
+version = "0.1.1"
 description = "Waypoint-1.5-1B interactive world model on Tenstorrent Blackhole via TTNN. `uv build` here packages the FULL waypoint_ttnn tree, bring-up scripts and tests included -- fine for local dev/reinstall, but NOT what episod/tt-waypoint's published bundle ships. That wheel is a hand-curated, narrower build containing only the served-path closure session.py reaches (session, server ASGI app, tt/{full_model,vae_encoder,vae_decoder,functional_decoder,generation_loop,rope}.py) -- capture_*.py, benchmark.py, stage*_check.py, tests/, and doc/ are excluded from it. setuptools' packages.find has no clean way to drop individual top-level modules from an included package without moving them out of waypoint_ttnn/, which would break the paths this repo's own docs and scripts already reference -- so that curation step is manual for now; see episod/tt-waypoint's own README (Provenance section) for exactly what the published wheel contains."
 requires-python = ">=3.10"
 

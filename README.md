@@ -1,11 +1,12 @@
 # tt-waypoint
 
 From-scratch TTNN bring-up of [Overworld/Waypoint-1.5-1B](https://huggingface.co/Overworld/Waypoint-1.5-1B)
-on Tenstorrent Blackhole (P300×2) — a custom autoregressive causal diffusion transformer
+on Tenstorrent Blackhole — a custom autoregressive causal diffusion transformer
 ("world model": interactive video generation conditioned on mouse/button/scroll input),
 brought up from scratch rather than reused from an existing TTNN model like
-[tt-skyreels](https://github.com/tsingletaryTT/tt-skyreels). **Bring-up in progress, not
-yet packaged or served** — see [Status](#status) below and
+[tt-skyreels](https://github.com/tsingletaryTT/tt-skyreels). **Hardware-verified and
+published** as a v6 thin bundle,
+[episod/tt-waypoint](https://huggingface.co/episod/tt-waypoint) — see [Status](#status) below and
 [BRINGUP_LOG.md](BRINGUP_LOG.md) for the full, timestamped history (wall-clock time,
 approximate token usage, every bug found and how).
 
@@ -24,10 +25,19 @@ bring-up methodology (the `ttm-*` skill family's conventions: `LightweightModule
 `models/autoports/` tree) follow two different, deliberate conventions.
 
 - **Model**: Waypoint-1.5-1B, autoregressive world model, 24 transformer layers + CNN VAE
-- **Hardware**: Tenstorrent Blackhole, P300×2 board (this box has no P150 — confirmed via
-  `tt-smi -ls`, not assumed)
+- **Hardware requirement**: **one Blackhole chip** (a 1x1 mesh). The package's serve
+  profile is labelled `p150` / `P150` because P150 is the single-chip Blackhole board and
+  tt-model-manager needs a label whose chip count equals the mesh's; "p150" names the
+  requirement, not the board it was tested on.
+- **Hardware actually verified on**: one chip of a **P300c** board (the bring-up box has
+  2x P300c and no P150 — confirmed via `tt-smi -ls`, not assumed). It has never been run
+  on a physical P150, and no multi-chip profile exists (`SUPPORTED_MESH_SHAPES = {(1, 1)}`
+  in `waypoint_ttnn/server/app.py`).
 - **Weights**: [`Overworld/Waypoint-1.5-1B`](https://huggingface.co/Overworld/Waypoint-1.5-1B)
-  (a pointer — never embedded here; downloaded to your own HF cache)
+  (a pointer — never embedded here; downloaded to your own HF cache). Since
+  `waypoint_ttnn` 0.1.1 the revision is pinned to `391f928` (the one verified here;
+  override with `TT_MODEL_WEIGHTS_REVISION`) and only the three files the server reads
+  (~7.5 GB, not the repo's ~11.4 GB) are fetched — see `waypoint_ttnn/session.py`.
 
 ## Repo layout
 
@@ -114,11 +124,13 @@ investigation trail, including why an earlier synthetic random-static seed test 
 catastrophic (even the reference's own output was unstructured noise under that
 out-of-distribution input) and how that was resolved.
 
-Packaged with [tt-model-manager](https://github.com/tenstorrent/tt-model-manager)
-(`tt_model_package.yaml`) and hardware-verified end to end: built, served, and exercised
-through the real HTTP API (`POST /v1/sessions` to seed from an image, `POST
-/v1/sessions/{id}/step` to advance a frame) against the actual running container — see
-PORT_PLAN.md's Stage 7 section for the two real bugs found and fixed along the way.
+Packaged with [tt-model-manager](https://github.com/tenstorrent/tt-model-manager) and
+hardware-verified end to end: built, served, and exercised through the real HTTP API
+(`POST /v1/sessions` to seed from an image, `POST /v1/sessions/{id}/step` to advance a
+frame) — first as a v5.1 container (`tt_model_package.yaml`, see PORT_PLAN.md's Stage 7
+section for the two real bugs found and fixed along the way), then repackaged on
+2026-09-15 as a v6 thin (pip/venv) bundle, which replaced the container on HF; the
+container manifest was deleted from this repo at that point.
 Published, public, on Hugging Face:
 [episod/tt-waypoint](https://huggingface.co/episod/tt-waypoint).
 
