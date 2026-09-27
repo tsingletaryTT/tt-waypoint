@@ -57,7 +57,8 @@ WEIGHTS_REVISION_ENV = "TT_MODEL_WEIGHTS_REVISION"
 #: sources (`transformer/model.py`, `vae/ae_model.py`, `modular_*`), which this port
 #: replaces rather than imports. `vae/config.json` is deliberately NOT included: the
 #: VAE's shape is hardcoded in tt/vae_{encoder,decoder}.py, not read from config.
-#: Keep this list and the two `os.path.join(...)` reads below in lockstep --
+#: Keep this list and the three `os.path.join(snapshot_dir, ...)` reads below (the config in
+#: `_load_config()`, the two weight files in `ensure_waypoint_models()`) in lockstep --
 #: `tests/test_weights_pin.py` asserts they match. A repackage should pass the same
 #: list to `tt-model package-thin` so the bundle's own pull fetches the same subset.
 WEIGHTS_ALLOW_PATTERNS = (
