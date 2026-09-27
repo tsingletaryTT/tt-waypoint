@@ -50,7 +50,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 #: The env var carrying the resolved mesh shape (this kind's default, FLUX2_MESH_SHAPE,
-#: means nothing to this model -- see tt_model_package.yaml's runtime.mesh_shape_env).
+#: means nothing to this model). It was declared as `runtime.mesh_shape_env` in the v5.1
+#: `tt_model_package.yaml`, which was deleted in the v6 thin repackage; unset, the
+#: server falls back to the only supported shape, (1, 1).
 MESH_SHAPE_ENV = "WAYPOINT_MESH_SHAPE"
 
 #: Only ever verified on a single chip (see BRINGUP_LOG.md) -- no tensor/sequence

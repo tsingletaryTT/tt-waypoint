@@ -1,6 +1,8 @@
 # Waypoint-1.5-1B TTNN port plan
 
-Staged plan for porting `Overworld/Waypoint-1.5-1B` to Tenstorrent Blackhole (P300×2).
+Staged plan for porting `Overworld/Waypoint-1.5-1B` to Tenstorrent Blackhole. The
+requirement is one Blackhole chip (serve profile `p150`); all work was done on one chip of
+a P300c board, since the bring-up box has no P150.
 Each stage produces a numerically-checked component before moving to the next — no stage
 is "done" until its TTNN output matches the reference PyTorch component within tolerance
 on real inputs, using the exact tensor contracts confirmed in `BRINGUP_LOG.md`.

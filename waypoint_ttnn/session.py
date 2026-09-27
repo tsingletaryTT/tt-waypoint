@@ -28,6 +28,45 @@ _generator = None
 MESH_SHAPE = (1, 1)
 L1_SMALL_SIZE = 21760  # conv2d's halo op needs this set; see vae_decoder.py's own note.
 
+# --- Weights: which repo, which exact revision, which files --------------------------
+#
+#: Upstream weights repo. Never embedded in this package; fetched into the HF cache.
+WEIGHTS_REPO_ID = "Overworld/Waypoint-1.5-1B"
+
+#: The upstream commit this port was brought up, benchmarked and hardware-verified
+#: against (HF API `sha` on 2026-09-27; upstream lastModified 2026-07-16, i.e. before
+#: the 2026-09-09 bring-up started, so this is the revision every number in
+#: BRINGUP_LOG.md was measured on). Pinned so a later upstream push can't silently
+#: change what a served bundle loads.
+PINNED_WEIGHTS_REVISION = "391f92827075edcf4a8b3c8a2ddae010698f8636"
+
+#: tt-model-manager's v6 `run.sh` exports this when the bundle manifest carries a
+#: weights revision, so the manifest and the code can't disagree. When it is unset
+#: (dev checkout, bare `uvicorn`), the pin above applies. An empty string counts as
+#: unset -- `or`, not a `.get()` default -- so `TT_MODEL_WEIGHTS_REVISION=` can't
+#: accidentally resolve `main`.
+WEIGHTS_REVISION_ENV = "TT_MODEL_WEIGHTS_REVISION"
+
+#: The ONLY files the served path reads -- see `ensure_waypoint_models()` and
+#: `_load_config()` below, which open exactly these three paths and nothing else under
+#: the snapshot (verified by grepping the served closure -- session.py, server/app.py,
+#: tt/*.py -- for every file open / from_pretrained / hub call; none exist outside this
+#: module). The upstream repo is ~11.4 GB; this filter skips the root
+#: `model.safetensors` (3.72 GB, an alternative packaging of the same model that this
+#: port never loads), `assets/` (~250 MB of demo media), and the upstream Python
+#: sources (`transformer/model.py`, `vae/ae_model.py`, `modular_*`), which this port
+#: replaces rather than imports. `vae/config.json` is deliberately NOT included: the
+#: VAE's shape is hardcoded in tt/vae_{encoder,decoder}.py, not read from config.
+#: Keep this list and the three `os.path.join(snapshot_dir, ...)` reads below (the config in
+#: `_load_config()`, the two weight files in `ensure_waypoint_models()`) in lockstep --
+#: `tests/test_weights_pin.py` asserts they match. A repackage should pass the same
+#: list to `tt-model package-thin` so the bundle's own pull fetches the same subset.
+WEIGHTS_ALLOW_PATTERNS = (
+    "transformer/config.json",
+    "transformer/diffusion_pytorch_model.safetensors",
+    "vae/diffusion_pytorch_model.safetensors",
+)
+
 
 class _Cfg:
     def __init__(self, d):
@@ -61,6 +100,8 @@ def ensure_waypoint_models():
         try:
             snapshot_dir = _resolve_snapshot_dir()
             hf_config = _load_config(snapshot_dir)
+            # Both paths must be covered by WEIGHTS_ALLOW_PATTERNS, or the filtered
+            # snapshot won't contain them.
             tf_weights = os.path.join(snapshot_dir, "transformer", "diffusion_pytorch_model.safetensors")
             vae_weights = os.path.join(snapshot_dir, "vae", "diffusion_pytorch_model.safetensors")
             tf_state_dict = load_file(tf_weights)
@@ -106,10 +147,28 @@ def _resolve_snapshot_dir() -> str:
     served container, which mounts the HF cache at `/hf` (`HF_HOME=/hf`, set by
     tt-model-manager's own container.py) instead. A real bug hit on the first real
     `tt-model serve` attempt: `glob.glob(...)[0]` raised `IndexError` because the
-    hardcoded host path was simply absent in the container."""
+    hardcoded host path was simply absent in the container.
+
+    Fetches a pinned revision (`weights_revision()`), and only the files the served
+    path reads (`WEIGHTS_ALLOW_PATTERNS`). Before 0.1.1 this downloaded `main` in full,
+    ~4 GB more than needed, and would have silently followed any upstream push."""
     from huggingface_hub import snapshot_download
 
-    return snapshot_download(repo_id="Overworld/Waypoint-1.5-1B")
+    return snapshot_download(
+        repo_id=WEIGHTS_REPO_ID,
+        revision=weights_revision(),
+        allow_patterns=list(WEIGHTS_ALLOW_PATTERNS),
+    )
+
+
+def weights_revision() -> str:
+    """The weights revision to load: `$TT_MODEL_WEIGHTS_REVISION` if set and non-empty
+    (exported by tt-model-manager's v6 run.sh from the bundle manifest), else the
+    revision this port was verified on. Pure function of the environment -- no hub call,
+    no device -- so it is unit-testable without hardware."""
+    import os
+
+    return os.environ.get(WEIGHTS_REVISION_ENV) or PINNED_WEIGHTS_REVISION
 
 
 def _load_config(snapshot_dir: str):
