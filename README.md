@@ -131,6 +131,9 @@ frame) — first as a v5.1 container (`tt_model_package.yaml`, see PORT_PLAN.md'
 section for the two real bugs found and fixed along the way), then repackaged on
 2026-09-15 as a v6 thin (pip/venv) bundle, which replaced the container on HF; the
 container manifest was deleted from this repo at that point.
+The bundle is staged by `packaging/package-thin.sh` (canonical v6 shape: stock `ttnn`, this
+package's code as source under `extra_code/`, a pinned `constraints.txt`). It stages only and
+never uploads; see CLAUDE.md for the details and what has been verified.
 Published, public, on Hugging Face:
 [episod/tt-waypoint](https://huggingface.co/episod/tt-waypoint).
 

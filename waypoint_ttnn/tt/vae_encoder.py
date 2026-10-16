@@ -31,7 +31,7 @@ from typing import Optional
 
 import torch
 
-from models.common.lightweightmodule import LightweightModule
+from waypoint_ttnn.tt.lightweightmodule import LightweightModule
 
 from waypoint_ttnn.tt.vae_decoder import MemBlockTT, OtherTT, TTConv2d, TWorkItem
 

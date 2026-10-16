@@ -51,7 +51,7 @@ from typing import Optional
 
 import torch
 
-from models.common.lightweightmodule import LightweightModule
+from waypoint_ttnn.tt.lightweightmodule import LightweightModule
 
 TWorkItem = namedtuple("TWorkItem", ("tensor", "layer_index"))
 

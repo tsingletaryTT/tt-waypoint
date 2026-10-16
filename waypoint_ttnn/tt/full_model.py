@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import torch
 
-from models.common.lightweightmodule import LightweightModule
+from waypoint_ttnn.tt.lightweightmodule import LightweightModule
 
 from waypoint_ttnn.tt.functional_decoder import FunctionalDecoder, _rms_norm_torch
 

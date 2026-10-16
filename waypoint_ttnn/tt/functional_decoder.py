@@ -12,9 +12,9 @@ class, a real `from_state_dict` weight-loading boundary, `prefill_forward`/
 being upstreamed into tt-metal -- it's a standalone bring-up, packaged and published the
 same way tt-skyreels/tt-animatediff are: a dedicated repo, referenced from
 tt-model-manager's `extra_code` once packaging starts. So the FILE lives here instead,
-importing `models.common.lightweightmodule` etc. from tt-metal via `sys.path` (see the
-test files for the exact pattern) the same way `skyreels_ttnn/pipeline_skyreels.py`
-imports `models.tt_dit.*`. Bring-up methodology and rigor from the skill; repo location
+using its own copy of tt-metal's `LightweightModule` (`waypoint_ttnn/tt/lightweightmodule.py`),
+so the served closure needs no tt-metal `models/` tree. The bring-up tests still put
+tt-metal on `sys.path` for ttnn itself (see the test files for the exact pattern). Bring-up methodology and rigor from the skill; repo location
 from the packaging convention. See CLAUDE.md's "Bring-up vs. packaging" section.
 
 WHY THIS DOES NOT LOOK LIKE A STANDARD tt_transformers DECODER
@@ -62,7 +62,7 @@ from typing import Optional
 
 import torch
 
-from models.common.lightweightmodule import LightweightModule
+from waypoint_ttnn.tt.lightweightmodule import LightweightModule
 
 
 @dataclass

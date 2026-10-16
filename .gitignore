@@ -8,3 +8,6 @@ generated/
 # capture_*.py scripts (which ARE tracked) against the real HF checkpoint. One already
 # hit 97MB, close to GitHub's 100MB hard block -- don't let these bloat repo history.
 ref_activations/*.pt
+
+# Output of packaging/package-thin.sh (staged bundle and working files). Regenerate; do not commit.
+build/
