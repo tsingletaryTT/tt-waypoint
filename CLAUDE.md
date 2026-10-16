@@ -30,6 +30,8 @@ and it's worth being explicit about which applies where:
   container (`tt_model_package.yaml`, 2026-09-09), then repackaged on 2026-09-15 as a v6
   thin bundle (`waypoint_ttnn` wheel + `tt-waypoint-models-closure` wheel, `ttnn` from
   PyPI) published as `episod/tt-waypoint`; the container manifest was deleted then.
+  The recipe is now `packaging/package-thin.sh` (canonical v6 shape, staged only; see the
+  2026-10-16 log entry). Run it with `packaging/package-thin.sh`; it never uploads.
 
 ## Status
 
@@ -65,6 +67,55 @@ tracked) against the real downloaded HF checkpoint. Regenerate them locally rath
 expecting them to be present after a fresh clone.
 
 ## Log
+
+### 2026-10-16 — canonical v6 shape, staged (waypoint_ttnn 0.1.2, not yet published)
+
+Prompt (from a pass that moves Taylor's v6 bundles to the shape documented in
+tt-model-manager PR #183): repackage to the canonical shape; stage only, no push, no
+hardware. Branch `feat/v6-canonical-shape`, off origin/main (which already contains
+`fix/pin-weights-revision`, merged as PR #1).
+
+- **Recipe**: the repo had no packaging script. `packaging/package-thin.sh` is now the one
+  rerunnable command. It reads the weights repo, revision and file filter from `session.py`,
+  stages the code, builds one wheel, runs `tt-model package-thin --out` (no repo id, so no
+  upload) and then `packaging/inspect_stage.py` on the result.
+- **Model code ships as source** (`--extra-code`). There is no `waypoint_ttnn` wheel.
+  `packaging/closure.py` computes the file list from the app's imports (12 files) and fails
+  on an import the bundle would not install.
+- **The `tt_waypoint_models_closure` wheel is gone.** Its one class, `LightweightModule`
+  (ten lines), is copied into `waypoint_ttnn/tt/lightweightmodule.py`. Four model files now
+  import it from there. tt-transformers does not apply: the served code imports nothing from
+  it, so there is no tooling wheel either. No custom kernels exist, so there is no ops wheel,
+  `model.py` has no ops import, and `deps.custom_ops` is empty. No tool or reasoning parser,
+  because the server is a session API with no tokens.
+- **`requirements.txt` has no index options, `constraints.txt` pins all 49 packages.**
+  `huggingface_hub` and `safetensors` are not in `requirements.txt`. install.sh ranks the
+  PyTorch CPU index above PyPI for that step, and `huggingface_hub` pulls in `requests`, so a
+  2022 certifi/urllib3/requests would install. They come in through
+  `tt_waypoint_serve_deps` (metadata only, built by `packaging/build_deps_wheel.py`) passed as
+  an `--ops-wheel`, which install.sh installs by path in a later step without that index.
+  Resolved in two passes (`--regen-constraints`) that mirror install.sh's two steps.
+- **Known leftover**: `idna==3.4`, `packaging==24.1` and `setuptools==78.1.0` still come from
+  the PyTorch index (fastapi -> anyio -> idna and torch's own dependencies sit in step 1).
+  Pinning newer versions makes step 1 fail, so the constraints record what step 1 installs.
+  The cause is the install order in tt-model-manager, which this repo cannot change.
+- **Weights**: the manifest carries the pinned revision and the three-file `allow_patterns`
+  (about 7.5 GB of the 11.4 GB repo), as the 2026-09-27 entry asked.
+- **Guards** (`--verify`, `packaging/guards.py`): stock ttnn version, own code present and no
+  `models`/`tt_transformers`, served code imports from `extra_code/` without loading ttnn, and
+  a current certifi/urllib3/requests. The import guard caught a real problem on its first run:
+  `python -c` puts the cwd first, so running install.sh from a repo checkout shadowed the
+  shipped code. It now drops the cwd from `sys.path`.
+- **Tests**: `waypoint_ttnn/tests/test_packaging_recipe.py` (pure Python). Each test was seen
+  to fail with the behaviour broken: old `models` import, dropped `--weights-revision`,
+  positional repo id, dropped guard assertion, `+local` ttnn pin, missing cwd handling.
+- **Verified** (no hardware): staged with the real `tt-model package-thin`; `inspect_stage.py`
+  passes (run.sh argv, PYTHONPATH order, manifest, closure equals shipped tree); `install.sh`
+  succeeds in a copy, all four guards run, `uv pip check` is clean; `import model` in the
+  installed venv loads the app from `extra_code/` and does not import ttnn. **Not verified**:
+  serving on a card, the first session and step, latency (the card's numbers are from the
+  0.1.1 bundle), `tt-model pull` of the published copy, a physical P150.
+- **Not done**: nothing was pushed. Publishing replaces `episod/tt-waypoint` and needs a yes.
 
 ### 2026-09-27 — pin the weights, fetch only what's read (waypoint_ttnn 0.1.1)
 

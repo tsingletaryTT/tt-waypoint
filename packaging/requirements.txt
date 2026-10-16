@@ -1,0 +1,20 @@
+# tt-waypoint v6 thin bundle (kind="tt-dit-server"): the packages the venv takes from an index.
+#
+# No index options belong in this file. `install.sh` adds the PyTorch CPU index itself for this
+# step, and pip and uv would honour an index line placed here.
+#
+# Keep this file short on purpose. install.sh puts the PyTorch CPU index ABOVE PyPI for this
+# step. That index carries one years-old copy each of certifi, urllib3, requests, idna and
+# charset-normalizer, and uv then takes them only from it. Anything here that pulls in
+# `requests` (huggingface_hub does) would install a 2022 CA bundle. So huggingface_hub and
+# safetensors are not listed here. They come in through the serve-deps wheel (see
+# packaging/build_deps_wheel.py), which install.sh installs by path in a later step that does
+# not use the PyTorch index.
+ttnn==0.78.0          # stock engine from PyPI (tt-metal v0.78.0). No +local fork.
+torch==2.14.0+cpu     # the model code uses torch tensors on the host; ttnn declares no torch dependency
+# Base HTTP stack for kind="tt-dit-server". package-thin would append these if missing; they are
+# listed so the file says what the venv holds.
+fastapi
+uvicorn
+pydantic>=2
+pillow

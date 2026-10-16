@@ -15,7 +15,7 @@ Run under a gozer lease:
 import sys
 from pathlib import Path
 
-# tt-metal for models.common.lightweightmodule / ttnn; this repo's own root for
+# tt-metal for ttnn (the model code has its own LightweightModule copy now); this repo's own root for
 # waypoint_ttnn itself. See CLAUDE.md's "Bring-up vs. packaging" note: functional_decoder.py
 # uses the ttm-functional-decoder skill's conventions (LightweightModule, from_state_dict,
 # prefill_forward/decode_forward, PCC-based verification) but lives in OUR repo rather
